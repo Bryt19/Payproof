@@ -1,39 +1,52 @@
 import {
-  MOCK_DATA_NOTICE,
-  mockActivity,
-  mockOverviewStats,
-  type DemoPaymentRecord,
-  type OverviewStat,
-} from "./mock-data";
-
-export type { DemoPaymentRecord, OverviewStat, PaymentStatus } from "./mock-data";
-
-export type DashboardMode = "demo" | "live";
-
-export type DashboardData = {
-  mode: DashboardMode;
-  notice: string;
-  stats: readonly OverviewStat[];
-  activity: readonly DemoPaymentRecord[];
-};
+  createPaymentRequestRepository,
+  describeRepositoryInitializationFailure,
+} from "../payment-requests/repository";
+import { buildDashboardSummary, type DashboardSummary } from "./summary";
 
 /**
- * Single data-access point for the dashboard.
+ * Server-only dashboard data access.
  *
- * The page only depends on this function, so replacing demo records with a
- * Supabase (or other backend) query means changing the body here — the stat
- * cards, table and shell stay untouched.
- *
- * When real records arrive they must not reuse {@link DemoPaymentRecord}: a
- * verified payment should expose its own type with the transaction signature
- * and slot, so demo rows and verified on-chain results can never be mixed or
- * mistaken for each other.
+ * Reads through the existing Supabase repository, which uses the service-role
+ * key on the server. There is deliberately no mock or empty-data fallback: a
+ * failure is returned as an explicit error so the UI never presents fake
+ * activity as merchant revenue.
  */
-export async function getDashboardData(): Promise<DashboardData> {
-  return {
-    mode: "demo",
-    notice: MOCK_DATA_NOTICE,
-    stats: mockOverviewStats,
-    activity: mockActivity,
-  };
+
+export type DashboardResult =
+  | { ok: true; data: DashboardSummary }
+  | { ok: false; message: string };
+
+export async function getDashboardData(): Promise<DashboardResult> {
+  let repo;
+
+  try {
+    repo = createPaymentRequestRepository();
+  } catch (cause) {
+    return {
+      ok: false,
+      message: describeRepositoryInitializationFailure(cause),
+    };
+  }
+
+  try {
+    const result = await repo.list();
+
+    if ("type" in result) {
+      return { ok: false, message: result.message };
+    }
+
+    return { ok: true, data: buildDashboardSummary(result) };
+  } catch (cause) {
+    // Never log row data or credentials, only the failure message.
+    console.error(
+      "[dashboard] Could not load payment requests from Supabase:",
+      cause instanceof Error ? cause.message : "unknown error",
+    );
+
+    return {
+      ok: false,
+      message: "Could not load dashboard data. Please try again.",
+    };
+  }
 }
