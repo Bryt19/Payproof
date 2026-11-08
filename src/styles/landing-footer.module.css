@@ -1,0 +1,149 @@
+.footer {
+  margin-top: 48px;
+  border-top: 1px solid rgba(35, 42, 46, 0.7);
+  background: rgba(8, 9, 11, 0.6);
+}
+
+.inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 40px 24px 32px;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 32px;
+}
+
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.brandMark {
+  width: 24px;
+  height: 24px;
+  color: #34d399;
+}
+
+.brandWordmark {
+  font-size: 17px;
+  font-weight: 600;
+  color: #f2f5f4;
+  letter-spacing: -0.01em;
+}
+
+.tagline {
+  margin: 0;
+  font-size: 13px;
+  color: #6b767c;
+  max-width: 260px;
+  line-height: 1.5;
+}
+
+.links {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.linkGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.linkGroupLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b767c;
+  margin-bottom: 2px;
+}
+
+.link {
+  text-decoration: none;
+  color: #98a0a6;
+  font-size: 13px;
+  transition: color 160ms ease;
+}
+
+.link:hover {
+  color: #f2f5f4;
+}
+
+.meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.network {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #d5dcda;
+}
+
+.networkDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #34d399;
+}
+
+.copyright {
+  margin: 0;
+  font-size: 11px;
+  color: #6b767c;
+  line-height: 1.5;
+  max-width: 220px;
+}
+
+.bottom {
+  border-top: 1px solid rgba(35, 42, 46, 0.5);
+  padding: 14px 24px;
+}
+
+.bottomInner {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bottomText {
+  font-size: 11px;
+  color: #6b767c;
+  letter-spacing: 0.04em;
+}
+
+.bottomSeparator {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #2f383d;
+}
+
+@media (max-width: 720px) {
+  .inner {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .meta {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .copyright {
+    max-width: 0;
+    flex: 1;
+  }
+}
