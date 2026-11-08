@@ -28,12 +28,11 @@ type BalanceState =
   | { kind: "error"; message: string };
 
 function BalanceDisplay({
-  client,
   address,
 }: {
-  client: AppClient;
   address: string;
 }) {
+  const client = useClient<AppClient>();
   const isHydrated = useIsHydrated();
   const mountedRef = useRef(false);
   const [state, setState] = useState<BalanceState>({ kind: "idle" });
@@ -291,7 +290,7 @@ export function WalletAvatarDropdown() {
             <p className="text-[11px] uppercase tracking-widest text-neutral-500">
               Balance
             </p>
-            <BalanceDisplay client={useClient<AppClient>()} address={address} />
+            <BalanceDisplay address={address} />
           </div>
 
           {/* Divider */}

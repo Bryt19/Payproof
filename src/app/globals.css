@@ -234,6 +234,19 @@ button {
   }
 }
 
+/* ── iOS Safari: prevent auto-zoom on input focus ──────────────────────────
+   iOS zooms in whenever a focused <input>/<textarea>/<select> has font-size
+   below 16 px. We pin it to 16 px on small screens WITHOUT touching
+   maximum-scale (which would disable user pinch-zoom and fail a11y audits).
+   ─────────────────────────────────────────────────────────────────────── */
+@media screen and (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 /* Dashboard Row Highlight (realtime update flash) */
 @keyframes payproof-row-highlight {
   0% { background: rgba(20,241,149,0.12); }
