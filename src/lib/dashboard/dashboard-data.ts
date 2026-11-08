@@ -2,6 +2,7 @@ import {
   createPaymentRequestRepository,
   describeRepositoryInitializationFailure,
 } from "../payment-requests/repository";
+import type { PaymentRequest } from "../payment-requests/types";
 import { buildDashboardSummary, type DashboardSummary } from "./summary";
 
 /**
@@ -14,7 +15,12 @@ import { buildDashboardSummary, type DashboardSummary } from "./summary";
  */
 
 export type DashboardResult =
-  | { ok: true; data: DashboardSummary }
+  | {
+      ok: true;
+      data: DashboardSummary;
+      /** Full rows behind the summary, used to build chart series. */
+      requests: readonly PaymentRequest[];
+    }
   | { ok: false; message: string };
 
 export async function getDashboardData(): Promise<DashboardResult> {
@@ -36,7 +42,7 @@ export async function getDashboardData(): Promise<DashboardResult> {
       return { ok: false, message: result.message };
     }
 
-    return { ok: true, data: buildDashboardSummary(result) };
+    return { ok: true, data: buildDashboardSummary(result), requests: result };
   } catch (cause) {
     // Never log row data or credentials, only the failure message.
     console.error(

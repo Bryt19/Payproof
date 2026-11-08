@@ -42,6 +42,8 @@ export type DashboardActivityRow = {
   /** ISO 8601 creation timestamp. */
   createdAt: string;
   transactionSignature: string | null;
+  /** Wallet that paid, when the request has been verified. */
+  payerAddress: string | null;
 };
 
 export type DashboardSummary = {
@@ -131,6 +133,7 @@ export function buildDashboardSummary(
       status: request.status,
       createdAt: request.createdAt,
       transactionSignature: request.transactionSignature,
+      payerAddress: request.payerAddress,
     })),
   };
 }
