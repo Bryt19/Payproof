@@ -39,3 +39,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# automation & browser cache
+.freebuff
+.freebuff/
+freebuff
+freebuff/
+
