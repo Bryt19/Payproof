@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppClient } from "@/lib/solana/client";
-import { fetchSolBalance, formatSol } from "@/lib/solana/balance";
+import { fetchSolBalance } from "@/lib/solana/balance";
+import { formatSol } from "@/lib/solana/units";
 
 type BalanceStatus = "loading" | "ready" | "error";
 
@@ -18,6 +19,10 @@ const updatedAtFormatter = new Intl.DateTimeFormat(undefined, {
 function describeBalanceError(error: unknown): string {
   if (error instanceof DOMException && error.name === "TimeoutError") {
     return "The balance request timed out.";
+  }
+
+  if (error instanceof TypeError) {
+    return "The Solana RPC endpoint could not be reached.";
   }
 
   if (error instanceof Error && error.message) {
@@ -109,42 +114,41 @@ export default function WalletBalance({
   const isLoading = status === "loading";
 
   return (
-    <div
-      aria-busy={isLoading}
-      className="mt-4 border-t border-gray-200 pt-4 dark:border-gray-800"
-    >
-      <p className="text-sm text-gray-600 dark:text-gray-400">Devnet balance</p>
+    <div aria-busy={isLoading} className="mt-4 border-t border-line pt-4">
+      <p className="text-[11px] uppercase tracking-wide text-muted">
+        Devnet balance
+      </p>
 
       <p
         role="status"
-        className="mt-1 font-mono text-lg font-semibold tabular-nums"
+        className="mt-1 font-mono text-lg font-semibold tabular-nums text-ink"
       >
-        {isLoading && "Loading balance…"}
+        {isLoading && <span className="text-sm text-muted">Loading balance…</span>}
 
         {status === "ready" && lamports !== null && (
           <>
             {formatSol(lamports)}{" "}
-            <span className="text-sm font-normal">SOL</span>
+            <span className="text-xs font-normal text-muted">SOL</span>
           </>
         )}
 
-        {status === "error" && "Unavailable"}
+        {status === "error" && (
+          <span className="text-sm font-normal text-muted">Unavailable</span>
+        )}
       </p>
 
       {status === "ready" && lamports === 0n && (
-        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-          This wallet has no SOL on Devnet.
-        </p>
+        <p className="mt-1 text-xs text-muted">This wallet has no SOL on Devnet.</p>
       )}
 
       {status === "ready" && updatedAt !== null && (
-        <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+        <p className="mt-1 text-[11px] text-muted">
           Updated at {updatedAtFormatter.format(updatedAt)}
         </p>
       )}
 
       {status === "error" && error && (
-        <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-400">
+        <p role="alert" className="mt-2 text-xs text-red-300">
           Could not load balance: {error}
         </p>
       )}
@@ -153,7 +157,7 @@ export default function WalletBalance({
         type="button"
         onClick={handleRefresh}
         disabled={isLoading}
-        className="mt-3 rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-700 dark:hover:bg-gray-900"
+        className="mt-3 rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-neutral-300 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60"
       >
         Refresh balance
       </button>
