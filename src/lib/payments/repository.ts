@@ -38,6 +38,8 @@ export type PaymentQueryParams = {
   sortDirection?: PaymentSortDirection;
   limit?: number;
   offset?: number;
+  /** Scope to the connected merchant wallet (client-provided). */
+  merchantAddress?: string;
 };
 
 export type PaymentsResult =
@@ -70,6 +72,13 @@ export async function fetchPayments(
   try {
     // Build the base query
     let query = supabase.from(SUPABASE_TABLE).select("*", { count: "exact" });
+
+    // Scope to the connected merchant wallet when provided.
+    const merchant =
+      typeof params.merchantAddress === "string" ? params.merchantAddress.trim() : "";
+    if (merchant.length > 0) {
+      query = query.eq("merchant_address", merchant);
+    }
 
     // Apply status filter (default: all)
     if (params.status === "failed") {
