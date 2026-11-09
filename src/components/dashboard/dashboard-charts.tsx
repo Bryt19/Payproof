@@ -301,12 +301,14 @@ interface DashboardChartsProps {
   initialSeries: readonly VolumePoint[];
   initialBreakdown: StatusBreakdown;
   initialRange: TimeRange;
+  merchantAddress?: string | null;
 }
 
 export default function DashboardCharts({
   initialSeries,
   initialBreakdown,
   initialRange,
+  merchantAddress,
 }: DashboardChartsProps) {
   const [range, setRange] = useState<TimeRange>(initialRange);
   const [series, setSeries] = useState<readonly VolumePoint[] | null>(initialSeries);
@@ -315,10 +317,24 @@ export default function DashboardCharts({
   const [chartError, setChartError] = useState<string | null>(null);
   const [breakdownError, setBreakdownError] = useState<string | null>(null);
 
+  const merchant =
+    typeof merchantAddress === "string" ? merchantAddress.trim() : "";
+
   const fetchData = useCallback(
     async (selectedRange: TimeRange) => {
+      if (!merchant) {
+        return {
+          ok: true,
+          series: [] as readonly VolumePoint[],
+          breakdown: emptyBreakdown,
+        };
+      }
+      const params = new URLSearchParams({
+        range: selectedRange,
+        merchantAddress: merchant,
+      });
       const response = await fetch(
-        `/api/dashboard-charts?range=${selectedRange}`,
+        `/api/dashboard-charts?${params.toString()}`,
         { headers: { Accept: "application/json" }, cache: "no-store" },
       );
 
@@ -339,7 +355,7 @@ export default function DashboardCharts({
 
       return data;
     },
-    [],
+    [merchant],
   );
 
   const reload = useCallback(async () => {
@@ -361,12 +377,21 @@ export default function DashboardCharts({
   }, [fetchData, range]);
 
   useEffect(() => {
+    if (!merchant) {
+      setSeries([]);
+      setBreakdown(emptyBreakdown);
+      setChartStatus({ kind: "loaded", series: [] });
+      setChartError(null);
+      setBreakdownError(null);
+      return;
+    }
     void reload();
-  }, [reload]);
+  }, [merchant, reload]);
 
   // The breakdown keeps itself current so a newly confirmed payment shows up
   // without a manual refresh.
   useEffect(() => {
+    if (!merchant) return;
     const timer = setInterval(async () => {
       try {
         const data = await fetchData(range);
@@ -382,7 +407,7 @@ export default function DashboardCharts({
     }, BREAKDOWN_POLL_MS);
 
     return () => clearInterval(timer);
-  }, [fetchData, range]);
+  }, [fetchData, merchant, range]);
 
   return (
     <section aria-labelledby="analytics-heading" className="space-y-5">

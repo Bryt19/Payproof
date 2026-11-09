@@ -92,7 +92,18 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(result, { status: 201 });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const merchantAddress =
+    request.nextUrl.searchParams.get("merchantAddress")?.trim() || "";
+
+  // Merchant console data is scoped to the connected wallet (client-provided).
+  if (merchantAddress.length === 0) {
+    return NextResponse.json(
+      { requests: [], notice: "", persistent: true },
+      { status: 200 },
+    );
+  }
+
   const opened = openRepository();
 
   if (!opened.ok) {
@@ -102,7 +113,7 @@ export async function GET() {
     );
   }
 
-  const result = await opened.repo.list();
+  const result = await opened.repo.list(merchantAddress);
 
   if ("type" in result) {
     return NextResponse.json(

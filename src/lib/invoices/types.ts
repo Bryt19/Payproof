@@ -1,61 +1,35 @@
 /**
- * Invoice domain types for Payproof.
+ * Invoice view types for Payproof.
  *
- * These shapes mirror the payment-request domain so the invoices page can share
- * validation, formatting, and status conventions. At this stage the types are
- * used by the UI only; real storage and payment linking will be added separately.
+ * For this version, each `payment_requests` row is represented as an invoice in
+ * the Invoices UI. Data comes from the existing Supabase `payment_requests`
+ * table via server-side API routes — never from mock/hardcoded records.
+ *
+ * IMPORTANT: status reflects the database record. A payment is only `paid`
+ * after server-side on-chain verification updates the database; the frontend
+ * must never mark an invoice paid on its own.
  */
 
-export type InvoiceStatus =
-  | "draft"
-  | "sent"
-  | "viewed"
-  | "paid"
-  | "overdue"
-  | "cancelled"
-  | "void";
+import type { PaymentRequestStatus } from "@/lib/payment-requests/types";
 
-export type Currency = "SOL" | "USD";
-
-export type InvoiceLineItem = {
-  description: string;
-  quantity: number;
-  unitPrice: number;
-};
+export type InvoiceStatus = PaymentRequestStatus;
 
 export type Invoice = {
   id: string;
-  number: string;
-  customerName: string;
-  customerEmail: string;
-  description: string;
-  lineItems: readonly InvoiceLineItem[];
-  currency: Currency;
-  amountCents: string;
+  /** Payment request reference, displayed as the invoice identifier. */
+  reference: string;
+  /** Exact amount in lamports, as an integer string. */
   amountLamports: string;
-  issueDate: string;
-  dueDate: string;
+  description: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  merchantAddress: string | null;
   status: InvoiceStatus;
-  notes: string | null;
+  transactionSignature: string | null;
+  payerAddress: string | null;
+  verifiedAt: string | null;
   createdAt: string;
 };
 
-export type InvoicePreview = {
-  invoice: Invoice;
-  shareUrl: string;
-  totalAmountText: string;
-  dueDateText: string;
-  statusText: string;
-};
-
-/**
- * Build a deterministic demo invoice ID prefix for the UI.
- * This is used only to make previews readable; it does not create real records.
- */
-export function makeInvoiceNumber(index: number): string {
-  const hex = index
-    .toString(16)
-    .toUpperCase()
-    .padStart(4, "0");
-  return `INV-${hex}`;
-}
+export type InvoiceSortField = "created_at" | "amount_lamports" | "reference";
+export type InvoiceSortDirection = "asc" | "desc";

@@ -1,5 +1,6 @@
 "use client";
 
+import { formatSol } from "@/lib/solana/units";
 import {
   CheckedIcon,
   InvoicesIcon,
@@ -9,13 +10,14 @@ import {
 export type InvoiceOverviewCounts = {
   total: number;
   paid: number;
-  open: number;
-  overdue: number;
+  pending: number;
+  /** Sum of `amountLamports` for paid records only, as an integer string. */
+  totalPaidLamports: string;
 };
 
 /**
- * KPI strip for the invoices page. Mirrors the payment request overview so both
- * list pages read the same way: label, count, short hint, accent colour.
+ * KPI strip for the Invoices page (payment requests viewed as invoices).
+ * Values are calculated from fetched database records, never hardcoded.
  */
 export default function InvoicesOverview({
   counts,
@@ -24,11 +26,19 @@ export default function InvoicesOverview({
   counts: InvoiceOverviewCounts;
   isRefreshing: boolean;
 }) {
+  const totalPaidSol = (() => {
+    try {
+      return formatSol(BigInt(counts.totalPaidLamports));
+    } catch {
+      return "0.000000";
+    }
+  })();
+
   const cards = [
     {
       label: "Total Invoices",
-      value: counts.total,
-      hint: `${counts.paid} paid · ${counts.open} open`,
+      value: counts.total.toLocaleString("en-US"),
+      hint: `${counts.paid} paid · ${counts.pending} pending`,
       badge: "All time",
       badgeColor: "bg-white/[0.06] text-white/60 border-white/[0.1]",
       valueColor: "text-white",
@@ -36,32 +46,33 @@ export default function InvoicesOverview({
     },
     {
       label: "Paid",
-      value: counts.paid,
-      hint: "Settled invoices",
+      value: counts.paid.toLocaleString("en-US"),
+      hint: "Verified on Solana Devnet",
       badge: "Confirmed",
       badgeColor: "bg-[#14F195]/10 text-[#14F195] border-[#14F195]/25",
       valueColor: "text-[#14F195]",
       icon: <CheckedIcon className="size-4 text-[#14F195]" />,
     },
     {
-      label: "Open",
-      value: counts.open,
-      hint: "Sent or viewed, not yet paid",
-      badge: "Awaiting",
+      label: "Pending",
+      value: counts.pending.toLocaleString("en-US"),
+      hint: "Awaiting verification",
+      badge: "Open",
       badgeColor: "bg-amber-400/10 text-amber-300 border-amber-400/25",
       valueColor: "text-amber-300",
       icon: <PendingIcon className="size-4 text-amber-300" />,
     },
     {
-      label: "Overdue",
-      value: counts.overdue,
-      hint: "Past their due date",
-      badge: "Action needed",
-      badgeColor: "bg-red-400/10 text-red-300 border-red-400/25",
-      valueColor: "text-red-300",
+      label: "Total Paid",
+      value: totalPaidSol,
+      suffix: "SOL",
+      hint: "Verified paid records only",
+      badge: "Revenue",
+      badgeColor: "bg-[#9945FF]/10 text-[#C14BF0] border-[#9945FF]/25",
+      valueColor: "text-white",
       icon: (
         <svg
-          className="size-4 text-red-300"
+          className="size-4 text-[#C14BF0]"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -70,9 +81,7 @@ export default function InvoicesOverview({
           strokeLinejoin="round"
           aria-hidden="true"
         >
-          <path d="M12 4.5 3.2 19.5h17.6L12 4.5Z" />
-          <path d="M12 10v4" />
-          <path d="M12 17h.01" />
+          <path d="M12 2v20M17 7.5c0-1.93-2.24-3.5-5-3.5s-5 1.57-5 3.5 2.24 3.5 5 3.5 5 1.57 5 3.5-2.24 3.5-5 3.5-5-1.57-5-3.5" />
         </svg>
       ),
     },
@@ -108,7 +117,12 @@ export default function InvoicesOverview({
                 }`}
                 style={{ fontSize: "clamp(1.0625rem, 4.8vw, 1.5rem)", lineHeight: 1.15 }}
               >
-                {card.value.toLocaleString("en-US")}
+                {card.value}
+                {"suffix" in card && card.suffix ? (
+                  <span className="ml-1 text-xs font-normal text-white/50">
+                    {card.suffix}
+                  </span>
+                ) : null}
               </p>
               <p className="mt-1 text-[10px] leading-snug text-white/40 sm:text-[11px]">
                 {card.hint}

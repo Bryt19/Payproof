@@ -1,29 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
 import { shortenAddress } from "@/lib/solana/address";
-
-/**
- * Simple deterministic string hash for generating stable 2-digit codes.
- */
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
-function monogram(name: string, address: string): string {
-  if (name) {
-    const cleaned = name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase();
-    if (cleaned.length >= 2) return cleaned;
-  }
-  // Fall back to first two characters of the address.
-  return address.slice(0, 2).toUpperCase();
-}
+import { WalletAvatar } from "@/components/wallet-avatar";
 
 export default function WalletAvatarDropdown() {
   const { isConnected, walletName, address, disconnect } = useWalletAuth();
@@ -54,15 +35,8 @@ export default function WalletAvatarDropdown() {
 
   if (!isConnected || !walletName || !address) return null;
 
-  const initials = monogram(walletName, address);
   const displayName = walletName;
   const shortAddress = shortenAddress(address);
-
-  // Generate a stable 2-digit fallback to use instead of initials.
-  // Deterministic from the address so the same wallet always gets the same
-  // number, but looks like a random int between 10 and 99.
-  const code = ((hashString(address) % 90) + 10).toString();
-  const label = initials || code;
 
   return (
     <div className="relative" ref={ref}>
@@ -78,13 +52,7 @@ export default function WalletAvatarDropdown() {
         aria-expanded={open}
         aria-label={`${displayName} — ${shortAddress}. Open menu.`}
       >
-        {/* Avatar glyph: initials only, no name beside it */}
-        <span
-          aria-hidden="true"
-          className="flex size-9.5 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#9945FF] to-[#14F195] text-[14px] font-semibold text-black"
-        >
-          {label}
-        </span>
+        <WalletAvatar name={displayName} address={address} />
       </button>
 
       {open && (
@@ -94,12 +62,7 @@ export default function WalletAvatarDropdown() {
         >
           {/* Account summary */}
           <div className="flex items-center gap-3 rounded-lg px-2 py-1.5">
-            <span
-              aria-hidden="true"
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#9945FF] to-[#14F195] text-[11px] font-semibold text-black"
-            >
-              {label}
-            </span>
+            <WalletAvatar name={displayName} address={address} />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-white">
                 {displayName}

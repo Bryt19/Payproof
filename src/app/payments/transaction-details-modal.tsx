@@ -161,7 +161,7 @@ export default function TransactionDetailsModal({
             type="button"
             onClick={onClose}
             aria-label="Close modal"
-            className="rounded-xl p-1.5 transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="flex size-11 shrink-0 items-center justify-center rounded-xl transition-colors hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-offset-2 sm:size-9"
             style={{ color: "rgba(255,255,255,0.5)" }}
           >
             <CloseIcon className="size-5" />

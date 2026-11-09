@@ -11,16 +11,6 @@ import { useIsHydrated } from "@/lib/use-is-hydrated";
 
 const REFRESH_INTERVAL_MS = 20_000;
 
-function monogram(name: string | null, address: string): string {
-  if (name) {
-    const cleaned = name.replace(/[^a-zA-Z0-9]/g, "").slice(0, 2).toUpperCase();
-
-    if (cleaned.length >= 2) return cleaned;
-  }
-
-  return address.slice(0, 2).toUpperCase();
-}
-
 type BalanceState =
   | { kind: "idle" }
   | { kind: "loading" }
@@ -34,22 +24,19 @@ function BalanceDisplay({
 }) {
   const client = useClient<AppClient>();
   const isHydrated = useIsHydrated();
-  const mountedRef = useRef(false);
   const [state, setState] = useState<BalanceState>({ kind: "idle" });
 
   const refresh = useCallback(
-    (abortSignal?: AbortSignal) => {
+    (signal?: AbortSignal) => {
       setState({ kind: "loading" });
 
-      fetchSolBalance(client, address, { signal: abortSignal })
+      fetchSolBalance(client, address, { signal })
         .then((lamports) => {
-          if (abortSignal?.aborted) return;
-
+          if (signal?.aborted) return;
           setState({ kind: "loaded", sol: lamports });
         })
         .catch((error) => {
-          if (abortSignal?.aborted) return;
-
+          if (signal?.aborted) return;
           setState({
             kind: "error",
             message:
@@ -63,44 +50,44 @@ function BalanceDisplay({
   );
 
   useEffect(() => {
-    if (!isHydrated || !mountedRef.current) return;
+    if (!isHydrated) return;
 
-    mountedRef.current = true;
-    setState({ kind: "loading" });
-    refresh();
+    const controller = new AbortController();
+    const initial = setTimeout(() => {
+      refresh(controller.signal);
+    }, 0);
 
     const timer = setInterval(() => {
-      if (!mountedRef.current) return;
-
-      refresh();
+      if (!controller.signal.aborted) {
+        refresh(controller.signal);
+      }
     }, REFRESH_INTERVAL_MS);
 
     return () => {
-      mountedRef.current = false;
+      controller.abort();
+      clearTimeout(initial);
       clearInterval(timer);
     };
   }, [isHydrated, refresh]);
 
-  if (state.kind === "loading") {
+  if (state.kind === "idle" || state.kind === "loading") {
     return (
-      <div className="mt-1.5 flex items-center gap-2 text-sm tabular-nums">
-        <span className="h-4 w-16 animate-pulse rounded bg-white/10" />
+      <span className="inline-flex items-center gap-1.5 text-sm tabular-nums">
+        <span className="h-4 w-14 animate-pulse rounded bg-white/10" />
         <span className="text-neutral-400">SOL</span>
-      </div>
+      </span>
     );
   }
 
   if (state.kind === "error") {
     return (
-      <div className="mt-1.5 flex items-center gap-2 text-sm">
-        <span className="text-neutral-400">Sol balance</span>
-        <span className="text-red-300 text-[11px]">unavailable</span>
-      </div>
+      <span
+        className="text-[11px] text-red-300"
+        title={state.message}
+      >
+        unavailable
+      </span>
     );
-  }
-
-  if (state.kind !== "loaded") {
-    return null;
   }
 
   const sol = state.sol;
@@ -112,12 +99,12 @@ function BalanceDisplay({
       : fraction.toString().padStart(9, "0").slice(0, 2);
 
   return (
-    <div className="mt-1.5 flex items-center gap-2 text-sm tabular-nums">
-      <span className="text-white">
+    <span className="inline-flex items-center gap-1.5 text-sm tabular-nums">
+      <span className="font-medium text-white">
         {whole}.{fractionText}
       </span>
       <span className="text-neutral-400">SOL</span>
-    </div>
+    </span>
   );
 }
 
@@ -235,9 +222,6 @@ export function WalletAvatarDropdown() {
 
   const displayName = walletName;
   const shortAddress = shortenAddress(address);
-  const monogramLabel = monogram(walletName, address) || shortenAddress(address);
-  const code = ((hashString(address) % 90) + 10).toString();
-  const label = monogramLabel || code;
 
   return (
     <div className="relative" ref={ref}>
@@ -286,10 +270,8 @@ export function WalletAvatarDropdown() {
           <div className="my-1 border-t border-white/5" />
 
           {/* Balance */}
-          <div className="rounded-[12px] border border-white/5 bg-white/[0.02] p-3">
-            <p className="text-[11px] uppercase tracking-widest text-neutral-500">
-              Balance
-            </p>
+          <div className="flex items-center justify-between gap-3 rounded-[12px] border border-white/5 bg-white/[0.02] px-3 py-2.5">
+            <span className="text-sm text-neutral-400">Balance:</span>
             <BalanceDisplay address={address} />
           </div>
 
@@ -352,12 +334,4 @@ export function WalletAvatarDropdown() {
   );
 }
 
-function hashString(s: string): number {
-  let h = 0;
 
-  for (let i = 0; i < s.length; i += 1) {
-    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
-  }
-
-  return Math.abs(h);
-}

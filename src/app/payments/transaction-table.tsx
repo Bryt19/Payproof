@@ -158,7 +158,7 @@ export default function TransactionTable({
               onChange={(event) => filters.onSearchChange(event.target.value)}
               placeholder="Search reference, description…"
               autoComplete="off"
-              className="h-11 w-full rounded-xl border border-white/[0.1] sm:h-10 bg-white/[0.03] pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:border-[#9945FF]/60 focus:bg-white/[0.05] focus:outline-none focus:ring-1 focus:ring-[#9945FF]"
+              className="h-11 w-full rounded-3xl border border-white/[0.1] bg-white/[0.03] pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:border-[#9945FF]/60 focus:bg-white/[0.05] focus:outline-none focus:ring-1 focus:ring-[#9945FF] sm:h-10"
             />
             {filters.search !== "" && (
               <button
@@ -172,29 +172,7 @@ export default function TransactionTable({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={filters.onRefresh}
-            disabled={filters.isFetching}
-            className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-white/[0.1] sm:h-10 bg-white/[0.03] px-3.5 text-xs font-medium text-white/70 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
-          >
-            <svg
-              className={`size-3.5 ${filters.isFetching ? "animate-spin text-[#9945FF]" : ""}`}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-              <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
-              <path d="M16 21h5v-5" />
-            </svg>
-            <span>{filters.isFetching ? "Refreshing…" : "Refresh"}</span>
-          </button>
+
         </div>
       </div>
 

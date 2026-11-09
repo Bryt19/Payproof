@@ -23,7 +23,9 @@ export type DashboardResult =
     }
   | { ok: false; message: string };
 
-export async function getDashboardData(): Promise<DashboardResult> {
+export async function getDashboardData(
+  merchantAddress?: string | null,
+): Promise<DashboardResult> {
   let repo;
 
   try {
@@ -35,8 +37,17 @@ export async function getDashboardData(): Promise<DashboardResult> {
     };
   }
 
+  const merchant =
+    typeof merchantAddress === "string" ? merchantAddress.trim() : "";
+
+  // Merchant console data is scoped to the connected wallet (client-provided;
+  // not verified server-side ownership). Never return all merchants' data.
+  if (merchant.length === 0) {
+    return { ok: true, data: buildDashboardSummary([]), requests: [] };
+  }
+
   try {
-    const result = await repo.list();
+    const result = await repo.list(merchant);
 
     if ("type" in result) {
       return { ok: false, message: result.message };

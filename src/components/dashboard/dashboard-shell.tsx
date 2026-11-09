@@ -11,27 +11,28 @@ export default function DashboardShell({
   description,
   children,
   showRefresh = false,
+  onRefresh,
+  isRefreshing,
 }: {
   title: string;
   description: string;
   children: ReactNode;
-  /** Show the topbar refresh button (overview page). */
+  /** Show a refresh control in the top bar. */
   showRefresh?: boolean;
+  /** Custom refresh handler for client-fetched pages. */
+  onRefresh?: () => void;
+  /** External refreshing state for custom refresh handlers. */
+  isRefreshing?: boolean;
 }) {
   const [isNavOpen, setIsNavOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
-
-  // Restore saved collapse choice on mount
-  useEffect(() => {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved !== null) {
-        setIsCollapsed(saved === "true");
-      }
+      return localStorage.getItem(STORAGE_KEY) === "true";
     } catch {
-      // localStorage unavailable in sandboxed / private environments
+      return false;
     }
-  }, []);
+  });
 
   const handleToggleCollapse = () => {
     setIsCollapsed((prev) => {
@@ -114,6 +115,8 @@ export default function DashboardShell({
           isNavOpen={isNavOpen}
           onOpenNav={() => setIsNavOpen(true)}
           showRefresh={showRefresh}
+          onRefresh={onRefresh}
+          isRefreshing={isRefreshing}
         />
 
         <main className="flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:overflow-y-auto lg:px-9 lg:py-8">

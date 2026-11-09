@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import {
   CopyableValue,
   RadioField,
@@ -17,7 +17,6 @@ import {
 } from "@/components/dashboard/icons";
 import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
 import { WalletConnectModal } from "@/components/landing/wallet-connect-modal";
-import { shortenAddress } from "@/lib/solana/address";
 import { SOLANA_NETWORK_NAME } from "@/lib/solana/config";
 
 const SETTINGS_STORAGE_KEY = "payproof_console_settings";
@@ -238,31 +237,28 @@ function ResourceLink({
 export default function SettingsClient() {
   const [active, setActive] = useState<SectionId>("general");
   const [search, setSearch] = useState("");
-  const [settings, setSettings] = useState<PayproofSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<PayproofSettings>(() => {
+    if (typeof window === "undefined") return DEFAULT_SETTINGS;
+    try {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (!stored) return DEFAULT_SETTINGS;
+      const parsed = JSON.parse(stored) as Partial<PayproofSettings>;
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        notifications: {
+          ...DEFAULT_SETTINGS.notifications,
+          ...(parsed.notifications || {}),
+        },
+      };
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
+  });
   const [isSavedNotice, setIsSavedNotice] = useState(false);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
 
-  const { status, isConnected, address, walletName, disconnect } = useWalletAuth();
-
-  // Load preferences from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setSettings((prev) => ({
-          ...prev,
-          ...parsed,
-          notifications: {
-            ...prev.notifications,
-            ...(parsed.notifications || {}),
-          },
-        }));
-      }
-    } catch {
-      // localStorage unavailable or malformed
-    }
-  }, []);
+  const { isConnected, address, walletName, disconnect } = useWalletAuth();
 
   // Save settings helper
   const saveSettings = useCallback((newSettings: PayproofSettings) => {
@@ -396,7 +392,7 @@ export default function SettingsClient() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search preferences…"
-              className="h-10 w-full rounded-xl border border-white/[0.1] bg-white/[0.03] pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:border-[#9945FF]/60 focus:bg-white/[0.05] focus:outline-none focus:ring-1 focus:ring-[#9945FF]"
+              className="h-10 w-full rounded-3xl border border-white/[0.1] bg-white/[0.03] pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:border-[#9945FF]/60 focus:bg-white/[0.05] focus:outline-none focus:ring-1 focus:ring-[#9945FF]"
             />
             {search && (
               <button
@@ -415,7 +411,7 @@ export default function SettingsClient() {
         <div
           role="tablist"
           aria-label="Settings sections"
-          className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-black/20 px-5 py-3 sm:px-6"
+          className="sticky top-[3.25rem] z-20 flex items-center gap-2 overflow-x-auto border-b border-white/[0.06] bg-[#0E0E12]/95 px-5 py-3 backdrop-blur [scrollbar-width:none] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden sm:static sm:top-auto sm:flex-wrap sm:overflow-visible sm:bg-black/20 sm:px-6 sm:backdrop-blur-none lg:static"
         >
           {filtered.map((section) => {
             const isActive = section === activeSection;
@@ -427,7 +423,7 @@ export default function SettingsClient() {
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => setActive(section)}
-                className={`rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all duration-150 ${
+                className={`shrink-0 whitespace-nowrap rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all duration-150 ${
                   isActive
                     ? "bg-[#9945FF] text-white shadow-[0_0_16px_rgba(153,69,255,0.4)]"
                     : "text-white/60 hover:bg-white/[0.05] hover:text-white"

@@ -31,8 +31,13 @@ export type VerifiedPaymentInput = {
 };
 
 export interface PaymentRequestRepository {
-  /** Newest first. Returns an error result when the database is unavailable. */
-  list(): Promise<readonly PaymentRequest[] | RepositoryError>;
+  /**
+   * Newest first. Returns an error result when the database is unavailable.
+   *
+   * When `merchantAddress` is provided, only that merchant's requests are
+   * returned (client-scoped; not verified server-side ownership).
+   */
+  list(merchantAddress?: string | null): Promise<readonly PaymentRequest[] | RepositoryError>;
   /** Returns `null` for an unknown reference, or an error result on failure. */
   getByReference(
     reference: string,
@@ -211,11 +216,18 @@ export function createSupabaseRepository(): PaymentRequestRepository {
   const supabase = createSupabaseClient();
 
   return {
-    async list() {
-      const { data, error } = await supabase
+    async list(merchantAddress?: string | null) {
+      let query = supabase
         .from(SUPABASE_TABLE)
         .select("*")
         .order("created_at", { ascending: false });
+
+      const merchant = typeof merchantAddress === "string" ? merchantAddress.trim() : "";
+      if (merchant.length > 0) {
+        query = query.eq("merchant_address", merchant);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         logRepositoryFailure("select", error);
