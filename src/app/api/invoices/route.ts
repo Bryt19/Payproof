@@ -1,243 +1,265 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { Invoice, InvoiceStatus } from "@/lib/invoices/types";
+import type { PostgrestError } from "@supabase/supabase-js";
+import {
+  createSupabaseClient,
+  mapPaymentRequestRow,
+  SUPABASE_TABLE,
+  SupabaseConfigurationError,
+} from "@/lib/payment-requests/supabase";
+import type { Invoice, InvoiceSortDirection, InvoiceSortField, InvoiceStatus } from "@/lib/invoices/types";
 
 /**
- * In-memory invoice store for the invoices list page.
+ * GET /api/invoices
  *
- * This is a UI-only placeholder until a real backing store is connected. The
- * shape matches the Invoice type already used by the frontend, and the list
- * endpoint accepts the same query parameters the invoices page sends.
+ * Returns payment requests represented as invoices for the Invoices UI.
+ * Data comes from the existing Supabase `payment_requests` table (server-side
+ * service-role access). There is no mock/fallback data.
+ *
+ * Query parameters:
+ * - search: reference or customer name (case-insensitive)
+ * - status: all | pending | paid | expired | cancelled
+ * - sortField: created_at | amount_lamports | reference
+ * - sortDirection: asc | desc
+ * - limit: default 50, max 100
+ * - offset: default 0
  */
+export const dynamic = "force-dynamic";
 
-type SortField = "issued_at" | "due_at" | "amount" | "number";
-type SortDirection = "asc" | "desc";
+const VALID_STATUSES: readonly InvoiceStatus[] = [
+  "pending",
+  "paid",
+  "expired",
+  "cancelled",
+];
 
-interface ListOptions {
-  search?: string;
-  status?: string;
-  sortField: SortField;
-  sortDirection: SortDirection;
-  limit: number;
-  offset: number;
-}
+const VALID_SORT_FIELDS: readonly InvoiceSortField[] = [
+  "created_at",
+  "amount_lamports",
+  "reference",
+];
 
-function parseSortField(raw: string): SortField {
-  if (raw === "due_at" || raw === "amount" || raw === "number") return raw as SortField;
-  return "issued_at";
-}
-
-function parseSortDirection(raw: string): SortDirection {
-  return raw === "asc" ? "asc" : "desc";
-}
-
-function normalizeStatus(raw: string | undefined): string | undefined {
-  if (!raw || raw === "all") return undefined;
-  const allowed: InvoiceStatus[] = [
-    "draft",
-    "sent",
-    "viewed",
-    "paid",
-    "overdue",
-    "cancelled",
-    "void",
-  ];
-  return allowed.includes(raw as InvoiceStatus) ? raw : undefined;
-}
-
-function matchesSearch(invoice: Invoice, query: string): boolean {
-  const q = query.toLowerCase();
-  return (
-    invoice.number.toLowerCase().includes(q) ||
-    invoice.customerName.toLowerCase().includes(q) ||
-    invoice.customerEmail.toLowerCase().includes(q) ||
-    invoice.description.toLowerCase().includes(q)
+function logFailure(operation: string, error: PostgrestError): void {
+  console.error(
+    `[invoices] Supabase ${operation} failed: code=${error.code ?? "unknown"} message=${error.message} hint=${error.hint ?? "none"}`,
   );
 }
 
-function sortInvoices(invoices: Invoice[], field: SortField, direction: SortDirection): Invoice[] {
-  const sorted = [...invoices].sort((a, b) => {
-    let comparison = 0;
-    if (field === "issued_at") {
-      comparison = a.issueDate.localeCompare(b.issueDate);
-    } else if (field === "due_at") {
-      comparison = a.dueDate.localeCompare(b.dueDate);
-    } else if (field === "amount") {
-      comparison = BigInt(a.amountLamports) < BigInt(b.amountLamports) ? -1 : BigInt(a.amountLamports) > BigInt(b.amountLamports) ? 1 : 0;
-    } else if (field === "number") {
-      comparison = a.number.localeCompare(b.number);
-    }
-    return direction === "desc" ? -comparison : comparison;
-  });
-  return sorted;
+function parseStatus(raw: string | null): InvoiceStatus | "all" {
+  if (!raw || raw === "all") return "all";
+  return VALID_STATUSES.includes(raw as InvoiceStatus)
+    ? (raw as InvoiceStatus)
+    : "all";
 }
 
-function parsePositiveInt(value: string | null | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = parseInt(value, 10);
+function parseSortField(raw: string | null): InvoiceSortField {
+  if (!raw) return "created_at";
+  // Back-compat with older UI params.
+  if (raw === "issued_at") return "created_at";
+  if (raw === "number") return "reference";
+  if (raw === "amount") return "amount_lamports";
+  return VALID_SORT_FIELDS.includes(raw as InvoiceSortField)
+    ? (raw as InvoiceSortField)
+    : "created_at";
+}
+
+function parseSortDirection(raw: string | null): InvoiceSortDirection {
+  return raw === "asc" ? "asc" : "desc";
+}
+
+function parsePositiveInt(raw: string | null, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 1) return fallback;
   return parsed;
 }
 
-function parseNonNegativeInt(value: string | null | undefined, fallback: number): number {
-  if (!value) return fallback;
-  const parsed = parseInt(value, 10);
+function parseNonNegativeInt(raw: string | null, fallback: number): number {
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 0) return fallback;
   return parsed;
 }
 
+function toInvoice(row: ReturnType<typeof mapPaymentRequestRow>): Invoice {
+  return {
+    id: row.id,
+    reference: row.reference,
+    amountLamports: row.amountLamports,
+    description: row.description,
+    customerName: row.customerName,
+    customerEmail: row.customerEmail,
+    merchantAddress: row.merchantAddress,
+    status: row.status,
+    transactionSignature: row.transactionSignature,
+    payerAddress: row.payerAddress,
+    verifiedAt: row.verifiedAt,
+    createdAt: row.createdAt,
+  };
+}
+
+function addLamports(total: bigint, lamports: string): bigint {
+  try {
+    if (!/^\d+$/.test(lamports)) return total;
+    return total + BigInt(lamports);
+  } catch {
+    return total;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
+  const merchantAddress = params.get("merchantAddress")?.trim() || "";
+  const search = params.get("search")?.trim() || undefined;
+  const status = parseStatus(params.get("status"));
+  const sortField = parseSortField(params.get("sortField"));
+  const sortDirection = parseSortDirection(params.get("sortDirection"));
+  const limit = Math.min(parsePositiveInt(params.get("limit"), 50), 100);
+  const offset = parseNonNegativeInt(params.get("offset"), 0);
 
-  const searchRaw = params.get("search") ?? undefined;
-  const search = searchRaw?.trim() || undefined;
-  const status = normalizeStatus(params.get("status") ?? undefined);
-  const sortField = parseSortField(params.get("sortField") ?? "issued_at");
-  const sortDirection = parseSortDirection(params.get("sortDirection") ?? "desc");
-  const limit = Math.min(parsePositiveInt(params.get("limit") ?? undefined, 50), 100);
-  const offset = parseNonNegativeInt(params.get("offset") ?? undefined, 0);
-
-  const store = getInvoiceStore();
-
-  let list: Invoice[] = [...store.values];
-
-  if (search) {
-    list = list.filter((invoice) => matchesSearch(invoice, search ?? ""));
+  // Merchant console data is scoped to the connected wallet (client-provided).
+  if (merchantAddress.length === 0) {
+    return NextResponse.json(
+      {
+        invoices: [],
+        total: 0,
+        limit,
+        offset,
+        hasMore: false,
+        summary: { total: 0, paid: 0, pending: 0, totalPaidLamports: "0" },
+      },
+      { status: 200 },
+    );
   }
 
-  if (status) {
-    list = list.filter((invoice) => invoice.status === status);
+  let supabase;
+  try {
+    supabase = createSupabaseClient();
+  } catch (cause) {
+    const message =
+      cause instanceof SupabaseConfigurationError
+        ? "Invoices are unavailable because the server is missing its Supabase configuration."
+        : "Invoices are temporarily unavailable.";
+    return NextResponse.json(
+      {
+        invoices: [],
+        total: 0,
+        limit,
+        offset,
+        hasMore: false,
+        summary: { total: 0, paid: 0, pending: 0, totalPaidLamports: "0" },
+        error: message,
+      },
+      { status: 503 },
+    );
   }
 
-  list = sortInvoices(list, sortField, sortDirection);
+  try {
+    // Summary is calculated from this merchant's payment_requests (real records).
+    // Total paid amount uses only verified paid records.
+    const { data: summaryRows, error: summaryError } = await supabase
+      .from(SUPABASE_TABLE)
+      .select("status,amount_lamports")
+      .eq("merchant_address", merchantAddress);
 
-  const total = list.length;
-  const page = list.slice(offset, offset + limit);
+    if (summaryError) {
+      logFailure("select-invoice-summary", summaryError);
+    }
 
-  return NextResponse.json(
-    {
-      invoices: page,
-      total,
-      limit,
-      offset,
-      hasMore: offset + page.length < total,
-    },
-    { status: 200 },
-  );
+    let summaryTotal = 0;
+    let summaryPaid = 0;
+    let summaryPending = 0;
+    let totalPaidLamports = 0n;
+    for (const row of summaryRows ?? []) {
+      summaryTotal += 1;
+      if (row.status === "paid") {
+        summaryPaid += 1;
+        totalPaidLamports = addLamports(totalPaidLamports, String(row.amount_lamports ?? "0"));
+      } else if (row.status === "pending") {
+        summaryPending += 1;
+      }
+    }
+
+    let query = supabase
+      .from(SUPABASE_TABLE)
+      .select("*", { count: "exact" })
+      .eq("merchant_address", merchantAddress);
+
+    if (status !== "all") {
+      query = query.eq("status", status);
+    }
+
+    if (search) {
+      // PostgREST `.or()` filter string; values are trimmed user input.
+      const escaped = search.replace(/[%_,().]/g, (ch) => `\\${ch}`);
+      query = query.or(
+        `reference.ilike.%${escaped}%,customer_name.ilike.%${escaped}%`,
+      );
+    }
+
+    query = query.order(sortField, { ascending: sortDirection === "asc" });
+
+    if (limit > 0) {
+      query = query.range(offset, offset + limit - 1);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      logFailure("select-invoices", error);
+      return NextResponse.json(
+        {
+          invoices: [],
+          total: 0,
+          limit,
+          offset,
+          hasMore: false,
+          summary: {
+            total: summaryTotal,
+            paid: summaryPaid,
+            pending: summaryPending,
+            totalPaidLamports: totalPaidLamports.toString(),
+          },
+          error: "Could not load invoices. Please try again.",
+        },
+        { status: 503 },
+      );
+    }
+
+    const invoices: Invoice[] = (data ?? []).map((row) => toInvoice(mapPaymentRequestRow(row)));
+    const total = count ?? invoices.length;
+
+    return NextResponse.json(
+      {
+        invoices,
+        total,
+        limit,
+        offset,
+        hasMore: offset + invoices.length < total,
+        summary: {
+          total: summaryTotal,
+          paid: summaryPaid,
+          pending: summaryPending,
+          totalPaidLamports: totalPaidLamports.toString(),
+        },
+      },
+      { status: 200 },
+    );
+  } catch (cause) {
+    console.error(
+      "[invoices] Unexpected error:",
+      cause instanceof Error ? cause.message : "unknown error",
+    );
+    return NextResponse.json(
+      {
+        invoices: [],
+        total: 0,
+        limit,
+        offset,
+        hasMore: false,
+        summary: { total: 0, paid: 0, pending: 0, totalPaidLamports: "0" },
+        error: "An unexpected error occurred while loading invoices.",
+      },
+      { status: 503 },
+    );
+  }
 }
-
-// ---------------------------------------------------------------------------
-// In-memory store
-// ---------------------------------------------------------------------------
-
-let store: InvoiceStore | null = null;
-
-function getInvoiceStore(): InvoiceStore {
-  if (store) return store;
-
-  store = createDefaultInvoiceStore();
-  return store;
-}
-
-function createDefaultInvoiceStore(): InvoiceStore {
-  const seed: Invoice[] = [
-    {
-      id: "inv-1",
-      number: "INV-0001-A3F2",
-      customerName: "Ada Nwosu",
-      customerEmail: "ada@example.com",
-      description: "Website redesign - homepage and landing pages",
-      lineItems: [
-        { description: "Homepage mockup", quantity: 1, unitPrice: 450 },
-        { description: "Landing page design", quantity: 2, unitPrice: 300 },
-      ],
-      currency: "USD",
-      amountCents: "105000",
-      amountLamports: "105000000000",
-      issueDate: "2026-11-01T00:00:00.000Z",
-      dueDate: "2026-11-15T00:00:00.000Z",
-      status: "paid",
-      notes: "Payment confirmed on Solana Devnet.",
-      createdAt: "2026-11-01T09:12:00.000Z",
-    },
-    {
-      id: "inv-2",
-      number: "INV-0002-7B1C",
-      customerName: "Kofi Mensah",
-      customerEmail: "kofi@example.com",
-      description: "Mobile app backend integration",
-      lineItems: [
-        { description: "API integration", quantity: 1, unitPrice: 1200 },
-        { description: "Documentation", quantity: 1, unitPrice: 200 },
-      ],
-      currency: "USD",
-      amountCents: "140000",
-      amountLamports: "140000000000",
-      issueDate: "2026-11-03T00:00:00.000Z",
-      dueDate: "2026-11-17T00:00:00.000Z",
-      status: "sent",
-      notes: null,
-      createdAt: "2026-11-03T14:05:00.000Z",
-    },
-    {
-      id: "inv-3",
-      number: "INV-0003-4D9E",
-      customerName: "Zara Okafor",
-      customerEmail: "zara@example.com",
-      description: "UI audit and accessibility review",
-      lineItems: [
-        { description: "Accessibility audit", quantity: 1, unitPrice: 600 },
-      ],
-      currency: "USD",
-      amountCents: "60000",
-      amountLamports: "60000000000",
-      issueDate: "2026-10-20T00:00:00.000Z",
-      dueDate: "2026-11-03T00:00:00.000Z",
-      status: "overdue",
-      notes: "Payment is past due.",
-      createdAt: "2026-10-20T11:30:00.000Z",
-    },
-    {
-      id: "inv-4",
-      number: "INV-0004-C21F",
-      customerName: "Tunde Balogun",
-      customerEmail: "tunde@example.com",
-      description: "Branding package - logo and collateral",
-      lineItems: [
-        { description: "Logo design", quantity: 1, unitPrice: 800 },
-        { description: "Brand guidelines", quantity: 1, unitPrice: 400 },
-      ],
-      currency: "USD",
-      amountCents: "120000",
-      amountLamports: "120000000000",
-      issueDate: "2026-10-28T00:00:00.000Z",
-      dueDate: "2026-11-11T00:00:00.000Z",
-      status: "viewed",
-      notes: null,
-      createdAt: "2026-10-28T08:45:00.000Z",
-    },
-    {
-      id: "inv-5",
-      number: "INV-0005-98E3",
-      customerName: "Imani Roberts",
-      customerEmail: "imani@example.com",
-      description: "Smart contract review",
-      lineItems: [
-        { description: "Security review", quantity: 1, unitPrice: 2000 },
-      ],
-      currency: "SOL",
-      amountCents: "0",
-      amountLamports: "2000000000",
-      issueDate: "2026-11-04T00:00:00.000Z",
-      dueDate: "2026-11-18T00:00:00.000Z",
-      status: "draft",
-      notes: "Awaiting client confirmation.",
-      createdAt: "2026-11-04T16:20:00.000Z",
-    },
-  ];
-
-  return { values: seed };
-}
-
-type InvoiceStore = {
-  values: readonly Invoice[];
-};

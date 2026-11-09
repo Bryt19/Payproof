@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import type { PaymentRequest } from "@/lib/payment-requests/types";
 import { formatSolExact } from "@/lib/solana/units";
+import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
 import DashboardShell from "@/components/dashboard/dashboard-shell";
 import TransactionTable, {
   type PaymentStatusFilter,
@@ -33,6 +34,8 @@ const EMPTY_SUMMARY: PaymentsSummary = {
 };
 
 export default function PaymentsView() {
+  const { address } = useWalletAuth();
+  const merchant = typeof address === "string" ? address.trim() : "";
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
   const [selectedPayment, setSelectedPayment] =
     useState<PaymentRequest | null>(null);
@@ -51,7 +54,7 @@ export default function PaymentsView() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  const fetchCounts = useCallback(async (search: string) => {
+  const fetchCounts = useCallback(async (search: string, merchantAddress: string) => {
     const buckets: PaymentStatusFilter[] = [
       "all",
       "paid",
@@ -62,7 +65,11 @@ export default function PaymentsView() {
     try {
       const entries = await Promise.all(
         buckets.map(async (bucket) => {
-          const params = new URLSearchParams({ status: bucket, limit: "1" });
+          const params = new URLSearchParams({
+            status: bucket,
+            limit: "1",
+            merchantAddress,
+          });
           if (search) params.set("search", search);
 
           const response = await fetch(`/api/payments?${params.toString()}`, {
@@ -86,6 +93,13 @@ export default function PaymentsView() {
   }, []);
 
   const fetchData = useCallback(async () => {
+    if (!merchant) {
+      setLoadState({ status: "loaded", payments: [], total: 0, summary: EMPTY_SUMMARY });
+      setCounts(null);
+      setIsFetching(false);
+      return;
+    }
+
     // Keep the table mounted on re-queries so typing in search never flashes a
     // skeleton or loses input focus.
     setLoadState((current) =>
@@ -94,7 +108,7 @@ export default function PaymentsView() {
     setIsFetching(true);
 
     try {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams({ merchantAddress: merchant });
       if (debouncedSearch) params.set("search", debouncedSearch);
       if (statusFilter !== "all") params.set("status", statusFilter);
 
@@ -150,7 +164,7 @@ export default function PaymentsView() {
         },
       });
 
-      void fetchCounts(debouncedSearch);
+      void fetchCounts(debouncedSearch, merchant);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not load payments.";
@@ -161,10 +175,13 @@ export default function PaymentsView() {
     } finally {
       setIsFetching(false);
     }
-  }, [debouncedSearch, statusFilter, fetchCounts]);
+  }, [merchant, debouncedSearch, statusFilter, fetchCounts]);
 
   useEffect(() => {
-    void fetchData();
+    const timer = setTimeout(() => {
+      void fetchData();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [fetchData]);
 
   const clearFilters = () => {
@@ -180,6 +197,9 @@ export default function PaymentsView() {
     <DashboardShell
       title="Payments"
       description="Verified Solana payments received through Payproof."
+      showRefresh
+      onRefresh={() => void fetchData()}
+      isRefreshing={isFetching}
     >
       <div className="space-y-6">
         {/* Page header */}

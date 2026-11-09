@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import DashboardShell from "@/components/dashboard/dashboard-shell";
-import { InvoicesView } from "@/components/invoices/invoices-view";
+import InvoicesView from "@/components/invoices/invoices-view";
 
 export const metadata: Metadata = {
   title: "Invoices",
@@ -9,12 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function InvoicesPage() {
-  return (
-    <DashboardShell
-      title="Invoices"
-      description="Create and manage professional Solana-powered invoices."
-    >
-      <InvoicesView />
-    </DashboardShell>
-  );
+  return <InvoicesView />;
 }

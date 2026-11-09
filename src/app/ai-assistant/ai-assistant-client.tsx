@@ -238,94 +238,92 @@ export default function AIAssistantClient() {
       title="AI Assistant"
       description="Your intelligent payment and merchant assistant."
     >
-      <div className="flex flex-col gap-4 max-w-5xl mx-auto h-[calc(100vh-140px)] sm:h-[calc(100vh-130px)]">
+      <div className="mx-auto flex h-[calc(100dvh-8.75rem)] max-w-5xl flex-col gap-4 sm:h-[calc(100dvh-8.5rem)] lg:h-[calc(100dvh-8rem)]">
         {/* Main Chat Console Card */}
-        <div className="relative flex flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-surface/90 shadow-2xl backdrop-blur-md">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-surface/90 shadow-2xl backdrop-blur-md">
           {/* Header Bar */}
-          <div className="flex items-center justify-between border-b border-white/[0.06] bg-[#121217]/80 px-4 py-3 sm:px-6">
-            <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] bg-[#121217]/80 px-3 py-2.5 sm:px-6 sm:py-3">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
               <div className="relative flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#9945FF]/30 bg-gradient-to-tr from-[#9945FF]/20 to-[#C14BF0]/20 shadow-[0_0_12px_rgba(153,69,255,0.25)]">
                 <AssistantIcon className="size-4 text-[#C14BF0]" />
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold tracking-tight text-white">
-                    Payproof Intelligence
+                  <h2 className="truncate text-sm font-semibold tracking-tight text-white">
+                    Payproof AI
                   </h2>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 sm:px-2">
                     <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Online
+                    <span className="hidden sm:inline">Online</span>
                   </span>
                 </div>
-                <p className="text-[11px] text-neutral-400">
-                  Solana Devnet payment assistant & analytics
+                <p className="hidden text-[11px] text-neutral-400 sm:block">
+                  Solana Devnet payment assistant &amp; analytics
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={handleClearConversation}
                 disabled={messages.length === 0}
-                className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-neutral-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-2 focus-visible:outline-[#9945FF] disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex size-9 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.03] text-neutral-300 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-2 focus-visible:outline-[#9945FF] disabled:cursor-not-allowed disabled:opacity-40 sm:h-8 sm:w-auto sm:gap-1.5 sm:px-3"
                 title="Clear conversation"
+                aria-label="Clear conversation"
               >
                 <TrashIcon className="size-3.5 text-neutral-400" />
-                <span className="hidden sm:inline">Clear</span>
+                <span className="hidden text-xs font-medium sm:inline">Clear</span>
               </button>
 
               <button
                 type="button"
                 onClick={handleNewConversation}
-                className="flex items-center gap-1.5 rounded-lg border border-[#9945FF]/30 bg-[#9945FF]/10 px-3 py-1.5 text-xs font-medium text-white transition-all hover:bg-[#9945FF]/20 focus-visible:outline-2 focus-visible:outline-[#9945FF]"
+                className="flex size-9 items-center justify-center rounded-lg border border-[#9945FF]/30 bg-[#9945FF]/10 text-white transition-all hover:bg-[#9945FF]/20 focus-visible:outline-2 focus-visible:outline-[#9945FF] sm:h-8 sm:w-auto sm:gap-1.5 sm:px-3"
+                title="New chat"
+                aria-label="New chat"
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-3.5" aria-hidden="true">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
-                <span>New chat</span>
+                <span className="hidden text-xs font-medium sm:inline">New chat</span>
               </button>
             </div>
           </div>
 
           {/* Messages & Content Viewport */}
-          <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 space-y-6">
+          <div className="flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:space-y-6 sm:px-6 sm:py-6">
             {/* Empty State Welcome */}
             {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-6 sm:py-10 text-center max-w-2xl mx-auto">
-                <div className="relative mb-4 flex size-14 items-center justify-center rounded-2xl border border-[#9945FF]/30 bg-gradient-to-tr from-[#9945FF]/20 to-[#14F195]/20 shadow-[0_0_24px_rgba(153,69,255,0.25)]">
-                  <AssistantIcon className="size-7 text-[#C14BF0]" />
+              <div className="mx-auto flex max-w-2xl flex-col items-center justify-center py-4 text-center sm:py-10">
+                <div className="relative mb-3 flex size-12 items-center justify-center rounded-2xl border border-[#9945FF]/30 bg-gradient-to-tr from-[#9945FF]/20 to-[#14F195]/20 shadow-[0_0_24px_rgba(153,69,255,0.25)] sm:mb-4 sm:size-14">
+                  <AssistantIcon className="size-6 text-[#C14BF0] sm:size-7" />
                 </div>
 
-                <h3 className="text-lg sm:text-xl font-bold tracking-tight text-white">
-                  How can I assist your business today?
+                <h3 className="text-base font-bold tracking-tight text-white sm:text-xl">
+                  How can I help?
                 </h3>
-                <p className="mt-2 text-xs sm:text-sm text-neutral-400 leading-relaxed max-w-md">
-                  Ask about creating payment requests, verifying on-chain transactions on Solana Devnet, or drafting itemized invoices.
+                <p className="mt-1.5 max-w-md text-xs leading-relaxed text-neutral-400 sm:mt-2 sm:text-sm">
+                  Ask about payment requests, on-chain verification, or invoices.
                 </p>
 
-                {/* 2x2 Feature Suggestion Grid */}
-                <div className="mt-8 grid gap-3 w-full sm:grid-cols-2 text-left">
+                {/* Feature Suggestion Grid */}
+                <div className="mt-5 grid w-full gap-2.5 text-left sm:mt-8 sm:grid-cols-2 sm:gap-3">
                   {FEATURED_PROMPTS.map((item) => (
                     <button
                       key={item.title}
                       type="button"
                       onClick={() => sendMessage(item.prompt)}
-                      className="group flex flex-col justify-between rounded-xl border border-white/[0.08] bg-[#16161B]/80 p-4 transition-all hover:border-[#9945FF]/40 hover:bg-[#1A1A22] hover:shadow-[0_0_20px_rgba(153,69,255,0.15)] focus-visible:outline-2 focus-visible:outline-[#9945FF]"
+                      className="group flex items-start gap-3 rounded-xl border border-white/[0.08] bg-[#16161B]/80 p-3 text-left transition-all hover:border-[#9945FF]/40 hover:bg-[#1A1A22] focus-visible:outline-2 focus-visible:outline-[#9945FF] sm:flex-col sm:items-stretch sm:justify-between sm:gap-0 sm:p-4"
                     >
-                      <div>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="grid size-8 place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08]">
-                            {item.icon}
-                          </div>
-                          <span className="text-[11px] font-medium text-neutral-500 group-hover:text-[#9945FF] transition-colors">
-                            Ask now →
-                          </span>
-                        </div>
-                        <h4 className="mt-3 text-sm font-semibold text-white group-hover:text-[#9945FF] transition-colors">
+                      <div className="grid size-8 shrink-0 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.05] sm:mb-3">
+                        {item.icon}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-semibold text-white transition-colors group-hover:text-[#9945FF]">
                           {item.title}
                         </h4>
-                        <p className="mt-1 text-xs text-neutral-400 leading-relaxed">
+                        <p className="mt-0.5 text-xs leading-relaxed text-neutral-400 sm:mt-1">
                           {item.description}
                         </p>
                       </div>
@@ -375,13 +373,13 @@ export default function AIAssistantClient() {
           </div>
 
           {/* Input Console Bar */}
-          <div className="border-t border-white/[0.08] bg-[#121217]/95 p-3 sm:p-4 backdrop-blur-md">
+          <div className="border-t border-white/[0.08] bg-[#121217]/95 p-2.5 backdrop-blur-md sm:p-4">
             <form
               onSubmit={(event) => {
                 event.preventDefault();
                 handleSend();
               }}
-              className="relative flex items-end gap-2.5 rounded-2xl border border-white/[0.12] bg-[#181820] p-2 sm:p-2.5 shadow-inner transition-all focus-within:border-[#9945FF]/50 focus-within:ring-2 focus-within:ring-[#9945FF]/20"
+              className="relative flex items-end gap-2 rounded-2xl border border-white/[0.12] bg-[#181820] p-1.5 shadow-inner transition-all focus-within:border-[#9945FF]/50 focus-within:ring-2 focus-within:ring-[#9945FF]/20 sm:gap-2.5 sm:p-2.5"
             >
               <label htmlFor="ai-chat-input" className="sr-only">
                 Ask a question
@@ -399,9 +397,9 @@ export default function AIAssistantClient() {
                 onCompositionEnd={() => {
                   isComposing.current = false;
                 }}
-                placeholder="Ask about payments, invoices, or transactions… (Enter to send)"
+                placeholder="Ask about payments, invoices, or transactions…"
                 rows={1}
-                className="flex-1 max-h-40 min-h-[40px] resize-none border-0 bg-transparent px-3 py-2 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:ring-0 leading-relaxed"
+                className="max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent px-2.5 py-2 text-sm leading-relaxed text-white placeholder:text-neutral-500 focus:outline-none focus:ring-0 sm:max-h-40 sm:px-3"
               />
 
               {/* Plane Send Button */}
@@ -411,15 +409,15 @@ export default function AIAssistantClient() {
                 aria-label="Send message"
                 className={`grid size-10 shrink-0 place-items-center rounded-xl transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9945FF] ${
                   normalizedInput && state.status !== "loading"
-                    ? "btn-brand-gradient text-white shadow-[0_0_18px_rgba(153,69,255,0.45)] hover:scale-105 active:scale-95 cursor-pointer"
-                    : "border border-white/[0.08] bg-white/[0.04] text-neutral-500 cursor-not-allowed"
+                    ? "btn-brand-gradient cursor-pointer text-white shadow-[0_0_18px_rgba(153,69,255,0.45)] active:scale-95 sm:hover:scale-105"
+                    : "cursor-not-allowed border border-white/[0.08] bg-white/[0.04] text-neutral-500"
                 }`}
               >
-                <SendPlaneIcon className="size-4.5 -translate-y-0.5 translate-x-0.5" />
+                <SendPlaneIcon className="-translate-y-0.5 size-4.5 translate-x-0.5" />
               </button>
             </form>
 
-            <p className="mt-2 text-center text-[11px] text-neutral-500">
+            <p className="mt-2 hidden text-center text-[11px] text-neutral-500 sm:block">
               Press <kbd className="rounded bg-white/[0.08] px-1 py-0.5 font-mono text-[10px] text-neutral-400">Enter</kbd> to send • <kbd className="rounded bg-white/[0.08] px-1 py-0.5 font-mono text-[10px] text-neutral-400">Shift + Enter</kbd> for a new line • Powered by Solana Devnet
             </p>
           </div>

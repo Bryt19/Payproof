@@ -19,6 +19,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
 
+  const merchantAddress = searchParams.get("merchantAddress")?.trim() || undefined;
   const search = searchParams.get("search") || undefined;
   const statusParam = searchParams.get("status") || "all";
   const startDate = searchParams.get("startDate") || undefined;
@@ -27,6 +28,14 @@ export async function GET(request: NextRequest) {
   const sortDirectionParam = searchParams.get("sortDirection") || "desc";
   const limitParam = searchParams.get("limit");
   const offsetParam = searchParams.get("offset");
+
+  // Merchant console data is scoped to the connected wallet (client-provided).
+  if (!merchantAddress) {
+    return NextResponse.json(
+      { payments: [], total: 0, limit: 50, offset: 0, hasMore: false },
+      { status: 200 },
+    );
+  }
 
   // Validate status
   const validStatuses: PaymentFilterStatus[] = [
@@ -62,6 +71,7 @@ export async function GET(request: NextRequest) {
   const offset = offsetParam ? Math.max(parseInt(offsetParam, 10) || 0, 0) : 0;
 
   const result = await fetchPayments({
+    merchantAddress,
     search: search || undefined,
     status,
     startDate: startDate || undefined,
