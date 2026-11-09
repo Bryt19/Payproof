@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType, SVGProps } from "react";
+import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
 import {
   AssistantIcon,
   ChevronLeftIcon,
@@ -46,6 +47,12 @@ export default function SidebarNav({
   onToggleCollapse?: () => void;
 }) {
   const pathname = usePathname();
+  const { status, isConnected } = useWalletAuth();
+
+  // Settings stays open without a wallet because it hosts the connect flow.
+  // Every other console route requires a connected wallet.
+  const isSessionKnown = status === "connected" || status === "disconnected";
+  const lockConsoleLinks = isSessionKnown && !isConnected;
 
   return (
     <div className={`flex h-full flex-col ${isCollapsed ? "overflow-visible" : ""}`}>
@@ -145,19 +152,34 @@ export default function SidebarNav({
         <ul className="space-y-1">
           {navItems.map(({ label, icon: Icon, href, soon }) => {
             const active = isActivePath(pathname, href);
+            const locked = lockConsoleLinks && href !== "/settings";
 
             return (
               <li key={label} className="relative group">
                 <Link
                   href={href}
                   aria-current={active ? "page" : undefined}
-                  title={isCollapsed ? label : undefined}
-                  onClick={onClose}
+                  aria-disabled={locked || undefined}
+                  tabIndex={locked ? -1 : undefined}
+                  title={
+                    locked
+                      ? "Connect your wallet to access this page"
+                      : isCollapsed
+                        ? label
+                        : undefined
+                  }
+                  onClick={(event) => {
+                    if (locked) {
+                      event.preventDefault();
+                      return;
+                    }
+                    onClose?.();
+                  }}
                   className={`relative flex items-center rounded-xl transition-all duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9945FF] ${
                     isCollapsed
                       ? "size-11 mx-auto justify-center p-0"
                       : "gap-3 px-3 py-2.5 text-sm"
-                  }`}
+                  } ${locked ? "cursor-not-allowed opacity-40" : ""}`}
                   style={
                     active
                       ? {

@@ -7,6 +7,7 @@ import {
   useConnectedWallet,
   useIsWalletReady,
 } from "@solana/kit-plugin-wallet/react";
+import { BrandMark } from "@/components/dashboard/icons";
 import { SOLANA_NETWORK_NAME } from "@/lib/solana/config";
 import type { PaymentRequest } from "@/lib/payment-requests/types";
 import { shortenAddress } from "@/lib/solana/address";
@@ -88,16 +89,14 @@ export default function CheckoutShell({
       <header className="sticky top-0 z-30 border-b border-line bg-surface/80 backdrop-blur-md px-4 py-3.5 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
           <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2.5 text-sm font-semibold tracking-tight hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            href="/"
+            className="inline-flex items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            aria-label="Payproof home"
           >
-            <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-gradient-to-tr from-accent to-accent-bright text-accent-ink shadow-sm">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true">
-                <path d="M12 3.5 18.5 6v5.2c0 4-2.7 7.7-6.5 8.8-3.8-1.1-6.5-4.8-6.5-8.8V6L12 3.5Z" />
-                <path d="m9.2 11.8 1.9 1.9 3.7-3.7" />
-              </svg>
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-white/[0.08] bg-white/[0.03] shadow-sm">
+              <BrandMark className="size-5" />
             </span>
-            <span className="text-white font-bold">PayProof</span>
+            <span className="text-sm font-bold tracking-tight text-white">Payproof</span>
           </Link>
 
           <div className="flex items-center gap-3">

@@ -1,26 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import type { PaymentRequest } from "@/lib/payment-requests/types";
 import { usePaymentRequests } from "@/lib/payment-requests/use-payment-requests";
+import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
+import DashboardShell from "@/components/dashboard/dashboard-shell";
 import RequestsOverview from "./requests-overview";
 import CreateRequestDialog from "./create-request-dialog";
 import PaymentRequestList from "./payment-request-list";
 import CreateFab from "@/components/ui/create-fab";
 
 export default function PaymentRequestsView() {
+  const { address } = useWalletAuth();
   const {
     requests,
     status,
     error,
     refetch,
     repositoryNotice,
-  } = usePaymentRequests();
+  } = usePaymentRequests(address);
+  const isRefreshing = status === "loading";
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [persistenceNotice, setPersistenceNotice] = useState<string | null>(null);
 
   return (
-    <div className="space-y-6 pb-24 sm:pb-0">
+    <DashboardShell
+      title="Payment Requests"
+      description="Create and share Solana payment requests for your customers."
+      showRefresh
+      onRefresh={() => void refetch()}
+      isRefreshing={isRefreshing}
+    >
+      <div className="space-y-6 pb-24 sm:pb-0">
       {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -35,7 +45,7 @@ export default function PaymentRequestsView() {
         <button
           type="button"
           onClick={() => setIsCreateOpen(true)}
-          className="btn-brand-gradient hidden min-h-11 items-center justify-center gap-2 self-start rounded-xl px-5 py-2.5 text-xs font-semibold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] sm:inline-flex sm:self-auto"
+          className="btn-brand-gradient hidden min-h-11 items-center justify-center gap-2 self-start rounded-3xl px-5 py-2.5 text-xs font-semibold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] sm:inline-flex sm:self-auto"
         >
           <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="12" y1="5" x2="12" y2="19" />
@@ -81,6 +91,7 @@ export default function PaymentRequestsView() {
           onPersistenceNotice={setPersistenceNotice}
         />
       )}
-    </div>
+      </div>
+    </DashboardShell>
   );
 }

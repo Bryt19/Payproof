@@ -11,16 +11,31 @@ export default function TopBar({
   isNavOpen,
   onOpenNav,
   showRefresh = false,
+  onRefresh,
+  isRefreshing,
 }: {
   title: string;
   description: string;
   isNavOpen: boolean;
   onOpenNav: () => void;
-  /** Re-fetch server data from the current page. Overview page only. */
+  /** Show a refresh control in the top bar. */
   showRefresh?: boolean;
+  /** Custom refresh handler for client-fetched pages. Falls back to router.refresh(). */
+  onRefresh?: () => void;
+  /** External refreshing state for custom onRefresh handlers. */
+  isRefreshing?: boolean;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const refreshing = isRefreshing ?? isPending;
+
+  const handleRefresh = () => {
+    if (onRefresh) {
+      onRefresh();
+      return;
+    }
+    startTransition(() => router.refresh());
+  };
 
   return (
     <header
@@ -60,15 +75,15 @@ export default function TopBar({
         {showRefresh && (
           <button
             type="button"
-            onClick={() => startTransition(() => router.refresh())}
-            disabled={isPending}
-            aria-busy={isPending}
-            aria-label={isPending ? "Refreshing data" : "Refresh data"}
-            title={isPending ? "Refreshing data…" : "Refresh data"}
+            onClick={handleRefresh}
+            disabled={refreshing}
+            aria-busy={refreshing}
+            aria-label={refreshing ? "Refreshing data" : "Refresh data"}
+            title={refreshing ? "Refreshing data…" : "Refresh data"}
             className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-line bg-white/[0.03] text-white/70 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-wait disabled:opacity-60 sm:size-9"
           >
             <RefreshIcon
-              className={`size-4 ${isPending ? "animate-spin text-[#9945FF]" : ""}`}
+              className={`size-4 ${refreshing ? "animate-spin text-[#9945FF]" : ""}`}
             />
           </button>
         )}

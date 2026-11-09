@@ -32,9 +32,7 @@ export default function CreateRequestDialog({
           ? "This request stays pending until a matching Solana Devnet payment is verified on-chain. Creating it does not move any funds."
           : "Amounts are charged on Solana Devnet. Not connected to a wallet and logged in to PayProof? The request is saved without a merchant address."
       }
-      onClose={() => {
-        if (step === "confirmation") onClose();
-      }}
+      onClose={onClose}
     >
       {step === "confirmation" && savedRequest ? (
         <PaymentRequestPreview

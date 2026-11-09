@@ -45,7 +45,7 @@ export function WalletConnectModal({
     if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isConnecting) onClose();
+      if (event.key === "Escape") onClose();
     };
 
     const previousOverflow = document.body.style.overflow;
@@ -56,7 +56,7 @@ export function WalletConnectModal({
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open, isConnecting, onClose]);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -71,7 +71,7 @@ export function WalletConnectModal({
         type="button"
         aria-label={wallet.modal.close}
         tabIndex={-1}
-        onClick={isConnecting ? undefined : onClose}
+        onClick={onClose}
         className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
       />
 
@@ -92,8 +92,7 @@ export function WalletConnectModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={isConnecting}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-[#9945FF] disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-2 focus-visible:outline-[#9945FF]"
           >
             <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
               <path d="M18 6L6 18M6 6l12 12" />
