@@ -578,9 +578,9 @@ export const footer = {
     {
       title: "LEGAL",
       links: [
-        { label: "Disclaimer", href: "#" },
-        { label: "Privacy Policy", href: "#" },
-        { label: "Terms", href: "#" },
+        { label: "Disclaimer", href: "/disclaimer" },
+        { label: "Privacy Policy", href: "/privacy" },
+        { label: "Terms", href: "/terms" },
       ],
     },
   ],
