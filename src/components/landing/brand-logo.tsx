@@ -23,7 +23,7 @@ export function PayproofLogo({
 
       {showWordmark && (
         <span
-          className={`font-black tracking-tight text-white uppercase text-lg sm:text-xl ${wordmarkClass}`}
+          className={`font-black tracking-tight text-white text-lg sm:text-xl ${wordmarkClass}`}
           style={{ letterSpacing: "-0.03em", fontFamily: "'DM Sans', sans-serif" }}
         >
           Payproof
