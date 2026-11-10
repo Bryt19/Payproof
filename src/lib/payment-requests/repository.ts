@@ -11,6 +11,7 @@ import {
   type ValidatedPaymentRequest,
 } from "./validation";
 import { formatSolExact } from "@/lib/solana/units";
+import { createPaymentRequestCreatedNotification } from "../notifications/server";
 import type { NewPaymentRequestInput, PaymentRequest } from "./types";
 
 export type RepositoryErrorCode =
@@ -315,7 +316,11 @@ export function createSupabaseRepository(): PaymentRequestRepository {
             };
           }
 
-          return mapPaymentRequestRow(data);
+          const created = mapPaymentRequestRow(data);
+          // Real application event: a payment request was persisted successfully.
+          // Notification creation is best-effort and must not affect request creation.
+          await createPaymentRequestCreatedNotification(created);
+          return created;
         }
 
         logRepositoryFailure("insert", error);
