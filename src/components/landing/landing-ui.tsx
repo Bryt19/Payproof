@@ -190,7 +190,7 @@ export function DashboardShell({
       <div className={styles.glassPanelHeader}>
         <div className={styles.dashboardBrand}>
           <BrandMark className={styles.dashboardBrandMark} aria-hidden="true" />
-          <span className={styles.dashboardBrandWordmark}>PayProof</span>
+          <span className={styles.dashboardBrandWordmark}>Payproof</span>
         </div>
         <div className={styles.dashboardNetwork}>
           <span className={styles.dashboardNetworkDot} aria-hidden="true" />
