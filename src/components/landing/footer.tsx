@@ -1,7 +1,24 @@
-import React from "react";
+"use client";
+
+import React, { useCallback, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { PayproofLogo } from "./brand-logo";
 import { footer } from "@content/payproof";
+import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
+import { WalletConnectModal } from "./wallet-connect-modal";
+
+const PROTECTED_PATHS = new Set([
+  "/dashboard",
+  "/payments",
+  "/invoices",
+  "/payment-requests",
+  "/ai-assistant",
+]);
+
+function isProtectedConsoleHref(href: string): boolean {
+  return PROTECTED_PATHS.has(href);
+}
 
 function SocialIcon({ id }: { id: string }) {
   if (id === "x") {
@@ -37,27 +54,54 @@ function LinkChip({
   const isSoon = label.endsWith("(Soon)");
   const displayLabel = label.replace(/\s*\(Soon\)$/, "");
   return (
-    <li>
-      <Link
-        href={href}
-        className="inline-block py-1 text-sm text-white/70 hover:text-white transition-colors"
-      >
-        {displayLabel}
-        {isSoon && (
-          <span
-            className="ml-1.5 inline-block rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-white/40 uppercase tracking-wider"
-            aria-label={`${displayLabel} — coming soon`}
-          >
-            Soon
-          </span>
-        )}
-      </Link>
-    </li>
+    <span>
+      {displayLabel}
+      {isSoon && (
+        <span
+          className="ml-1.5 inline-block rounded-full border border-white/10 bg-white/[0.04] px-1.5 py-0.5 text-[10px] font-medium text-white/40 uppercase tracking-wider"
+          aria-label={`${displayLabel} — coming soon`}
+        >
+          Soon
+        </span>
+      )}
+    </span>
   );
 }
 
 export default function Footer() {
+  const router = useRouter();
+  const { status } = useWalletAuth();
+  const [connectOpen, setConnectOpen] = useState(false);
+  const pendingHref = useRef<string | null>(null);
   const [productColumn, exploreColumn, legalColumn] = footer.columns;
+
+  const onProtectedClick = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+      if (!isProtectedConsoleHref(href)) return;
+      if (status === "connected") return;
+      event.preventDefault();
+      pendingHref.current = href;
+      setConnectOpen(true);
+    },
+    [status],
+  );
+
+  const handleConnected = useCallback(() => {
+    setConnectOpen(false);
+    const href = pendingHref.current;
+    pendingHref.current = null;
+    if (href) router.push(href);
+  }, [router]);
+
+  const renderProtectedLink = (href: string, label: string, chip?: boolean) => (
+    <Link
+      href={href}
+      onClick={(e) => onProtectedClick(e, href)}
+      className="inline-block py-1 text-sm text-white/70 hover:text-white transition-colors"
+    >
+      {chip ? <LinkChip href={href} label={label} /> : label}
+    </Link>
+  );
 
   return (
     <footer className="relative border-t border-white/[0.08] bg-black text-white/70 py-16 lg:py-20">
@@ -96,7 +140,18 @@ export default function Footer() {
             </h4>
             <ul className="space-y-3">
               {productColumn.links.map((item) => (
-                <LinkChip key={item.label} href={item.href} label={item.label} />
+                <li key={item.label}>
+                  {isProtectedConsoleHref(item.href)
+                    ? renderProtectedLink(item.href, item.label, true)
+                    : (
+                      <Link
+                        href={item.href}
+                        className="inline-block py-1 text-sm text-white/70 hover:text-white transition-colors"
+                      >
+                        <LinkChip href={item.href} label={item.label} />
+                      </Link>
+                    )}
+                </li>
               ))}
             </ul>
           </div>
@@ -158,6 +213,12 @@ export default function Footer() {
           </p>
         </div>
       </div>
+
+      <WalletConnectModal
+        open={connectOpen}
+        onClose={() => setConnectOpen(false)}
+        onConnected={handleConnected}
+      />
     </footer>
   );
 }
