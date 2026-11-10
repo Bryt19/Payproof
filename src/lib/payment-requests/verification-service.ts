@@ -3,6 +3,7 @@ import {
   verifyOnChainPayment,
   type OnChainLookup,
 } from "../solana/payment-verification";
+import { createPaymentReceivedNotification } from "../notifications/server";
 import type { RepositoryError } from "./repository";
 import { isValidPaymentReference } from "./reference";
 import type { PaymentRequest, PaymentRequestStatus } from "./types";
@@ -102,6 +103,19 @@ function alreadyVerified(
     requestStatus: "paid",
     payerAddress: request.payerAddress ?? undefined,
   };
+}
+
+async function notifyPaymentReceived(request: PaymentRequest, signature: string): Promise<void> {
+  const merchantAddress = request.merchantAddress?.trim();
+  if (!merchantAddress) return;
+
+  await createPaymentReceivedNotification({
+    merchantAddress,
+    paymentRequestId: request.id,
+    paymentRequestReference: request.reference,
+    amountLamports: request.amountLamports,
+    transactionSignature: signature,
+  });
 }
 
 function isRepositoryError(value: unknown): value is RepositoryError {
@@ -283,6 +297,12 @@ export function createPaymentVerificationService({
       });
 
       if (update === "updated") {
+        // Real application event: payment verified on-chain and persisted.
+        // DB unique constraint prevents duplicates on retries/races.
+        await notifyPaymentReceived(
+          { ...request, transactionSignature: signature, payerAddress: onChain.payerAddress, status: "paid" },
+          signature,
+        );
         return {
           status: "verified",
           message:
@@ -340,6 +360,8 @@ export function createPaymentVerificationService({
         current.status === "paid" &&
         current.transactionSignature === signature
       ) {
+        // Idempotent verification path: ensure notification exists (deduped by DB).
+        await notifyPaymentReceived(current, signature);
         return alreadyVerified(current, signature);
       }
 
