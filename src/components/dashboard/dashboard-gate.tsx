@@ -49,7 +49,7 @@ export default function DashboardGate({
       aria-live="polite"
     >
       <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
-        <div className="h-10 w-2/3 animate-pulse rounded-full border border-white/10 bg-white/[0.06]" />
+        <span className="payproof-spinner" aria-hidden="true" />
         <p className="text-xs leading-relaxed text-white/55">{message}</p>
         {status === "disconnected" ? (
           <p className="text-[11px] text-white/40">
