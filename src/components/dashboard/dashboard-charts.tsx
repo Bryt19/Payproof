@@ -116,7 +116,7 @@ function VolumeChart({
   const showValueLabels = series.length <= 14;
 
   return (
-    <div className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+    <div className="rounded-2xl border border-line bg-surface p-3.5 sm:p-4">
       <div className="flex items-start justify-between gap-3">
         <h3 className="text-sm font-semibold">Payment volume</h3>
         <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
@@ -133,7 +133,7 @@ function VolumeChart({
       </p>
 
       {/* Bars are percentage-based so the chart stays fluid at any width. */}
-      <div className="mt-4 flex h-[168px] items-end gap-[2px] pt-4 sm:mt-5 sm:h-[196px] sm:gap-[3px]">
+      <div className="mt-3 flex h-[135px] items-end gap-[2px] pt-3 sm:mt-3.5 sm:h-[150px] sm:gap-[3px]">
         {series.map((point) => {
           const ratio = Number(point.value) / maxValue;
           const pct = Number.isFinite(ratio) ? Math.max(1.5, ratio * 100) : 1.5;
@@ -251,17 +251,18 @@ function StatusBreakdownCard({
 
   const maxValue = Math.max(breakdown.total, 1);
 
-  return (      <div className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
+  return (
+    <div className="rounded-2xl border border-line bg-surface p-3.5 sm:p-4">
       <h3 className="text-sm font-semibold">Payment status breakdown</h3>
       <p className="mt-0.5 text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
         From all payment requests in this account.
       </p>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 space-y-2.5">
         {items.map((item) => (
           <div key={item.key} className="flex items-center gap-3">
             <div
-              className="flex size-10 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums"
+              className="flex size-8.5 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold tabular-nums sm:size-9"
               style={{ background: `${item.color}22`, color: item.color }}
             >
               {item.value}
@@ -287,7 +288,7 @@ function StatusBreakdownCard({
         ))}
       </div>
 
-      <div className="mt-3 flex items-center justify-between rounded-lg bg-white/[0.02] px-3 py-2">
+      <div className="mt-2.5 flex items-center justify-between rounded-lg bg-white/[0.02] px-3 py-2">
         <span className="text-[11px] text-neutral-500">Total requests</span>
         <span className="font-mono text-sm tabular-nums text-neutral-100">
           {breakdown.total}
@@ -410,7 +411,7 @@ export default function DashboardCharts({
   }, [fetchData, merchant, range]);
 
   return (
-    <section aria-labelledby="analytics-heading" className="space-y-5">
+    <section aria-labelledby="analytics-heading" className="space-y-3 sm:space-y-3.5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="analytics-heading" className="text-sm font-semibold text-neutral-200">
@@ -448,7 +449,7 @@ export default function DashboardCharts({
         </div>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2">
+      <div className="grid gap-3.5 sm:gap-4 md:grid-cols-2">
         <VolumeChart
           series={series}
           onRetry={() => void reload()}
