@@ -100,10 +100,10 @@ export default function ActivitySection({
   return (
     <section
       aria-labelledby="activity-heading"
-      className="overflow-hidden rounded-2xl border border-line"
+      className="flex flex-col overflow-hidden rounded-2xl border border-line"
       style={{ background: "#0E0E12" }}
     >
-      <header className="flex flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+      <header className="flex shrink-0 flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div>
           <h2
             id="activity-heading"
@@ -166,8 +166,9 @@ export default function ActivitySection({
         </div>
       ) : (
         <>
-          {/* Stacked rows below md so nothing needs horizontal scrolling */}
-          <ul className="divide-y divide-line md:hidden">
+          {/* Stacked rows below md with internal scroll container */}
+          <div className="max-h-[280px] overflow-y-auto overscroll-contain md:hidden">
+            <ul className="divide-y divide-line">
             {visibleRows.length === 0 ? (
               <li className="px-4 py-10 text-center">
                 <p className="text-sm" style={{ color: "rgba(255,255,255,0.6)" }}>
@@ -248,36 +249,37 @@ export default function ActivitySection({
                 );
               })
             )}
-          </ul>
+            </ul>
+          </div>
 
-          <div className="hidden md:block">
+          <div className="hidden max-h-[260px] overflow-x-auto overflow-y-auto overscroll-contain md:block xl:max-h-[300px]">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">
               Recent Payproof payment requests, including amount, creation date,
               payment status and links to the on-chain proof.
             </caption>
 
-            <thead>
+            <thead className="sticky top-0 z-10 border-b border-line bg-[#0E0E12] text-[11px] uppercase tracking-wider shadow-sm">
               <tr
-                className="border-b border-line text-[11px] uppercase tracking-wider"
+                className="text-[11px] uppercase tracking-wider"
                 style={{ color: "rgba(255,255,255,0.35)" }}
               >
-                <th scope="col" className="px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
                   Description
                 </th>
-                <th scope="col" className="px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
                   Customer
                 </th>
-                <th scope="col" className="px-5 py-3 text-right font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-3 text-right font-medium">
                   Amount
                 </th>
-                <th scope="col" className="px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
                   Created
                 </th>
-                <th scope="col" className="px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
                   Status
                 </th>
-                <th scope="col" className="px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
                   Proof
                 </th>
               </tr>
@@ -389,7 +391,7 @@ export default function ActivitySection({
 
       {isSearching && !noMatches && (
         <p
-          className="border-t border-line px-5 py-2.5 text-[11px]"
+          className="shrink-0 border-t border-line px-5 py-2.5 text-[11px]"
           style={{ color: "rgba(255,255,255,0.35)" }}
         >
           {visibleRows.length} of {rows.length} request
