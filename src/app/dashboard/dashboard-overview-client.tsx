@@ -121,21 +121,22 @@ export default function DashboardOverviewClient() {
       showRefresh
       onRefresh={() => void fetchData()}
       isRefreshing={isRefreshing}
+      mainClassName="flex-1 px-4 py-3.5 sm:px-6 sm:py-4 lg:px-8 lg:py-5 lg:overflow-y-auto overscroll-none"
     >
-      <div className="space-y-6 pb-24 sm:pb-0">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-4 lg:space-y-4.5 pb-20 sm:pb-0">
+        <div className="flex flex-wrap items-start justify-between gap-2.5 sm:gap-3">
           <div>
             <h2 className="text-sm font-medium text-neutral-200">
               Dashboard overview
             </h2>
-            <p className="mt-1 max-w-xl text-xs text-muted">
+            <p className="mt-0.5 max-w-xl text-xs text-muted">
               Paid amounts only count after independent on-chain verification on
               Solana Devnet. Data shown is for the connected wallet.
             </p>
           </div>
           <Link
             href="/payment-requests"
-            className="btn-brand-gradient hidden min-h-11 items-center justify-center gap-2 rounded-3xl px-5 py-2.5 text-xs font-semibold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:inline-flex"
+            className="btn-brand-gradient hidden min-h-10 items-center justify-center gap-2 rounded-3xl px-4 py-2 text-xs font-semibold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:inline-flex"
           >
             <svg
               className="size-4"
@@ -172,24 +173,24 @@ export default function DashboardOverviewClient() {
             </button>
           </div>
         ) : showLoading ? (
-          <div className="space-y-6" aria-busy="true" aria-label="Loading dashboard">
-            <div className="kpi-grid grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
+          <div className="space-y-4" aria-busy="true" aria-label="Loading dashboard">
+            <div className="kpi-grid grid gap-2.5 sm:gap-3 xl:grid-cols-4">
               {[1, 2, 3, 4].map((i) => (
                 <div
                   key={i}
-                  className="h-32 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.02]"
+                  className="h-28 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.02]"
                 />
               ))}
             </div>
-            <div className="h-64 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.02]" />
+            <div className="h-56 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.02]" />
           </div>
         ) : state.status === "ready" ? (
           <>
-            <section aria-labelledby="stats-heading" className="space-y-4">
+            <section aria-labelledby="stats-heading" className="space-y-3">
               <h2 id="stats-heading" className="sr-only">
                 Key metrics
               </h2>
-              <div className="kpi-grid grid gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
+              <div className="kpi-grid grid gap-2.5 sm:gap-3 xl:grid-cols-4">
                 {state.data.stats.map((stat) => (
                   <StatCard
                     key={stat.id}
@@ -207,12 +208,12 @@ export default function DashboardOverviewClient() {
               merchantAddress={merchant}
             />
 
-            <div className="grid gap-6 xl:grid-cols-[1fr_280px]">
+            <div className="grid gap-4 lg:gap-5 xl:grid-cols-[1fr_280px]">
               <ActivitySection rows={state.data.activity} />
               <QuickActionsCard />
             </div>
 
-            <p className="text-[11px] text-neutral-500">
+            <p className="pt-0.5 text-[11px] text-neutral-500">
               Payment volume reflects verified on-chain payments only. Pending,
               expired and cancelled requests are not included in the totals.
             </p>
