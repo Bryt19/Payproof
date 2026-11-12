@@ -10,7 +10,7 @@ export default function StatCard({
 }) {
   return (
     <div
-      className="flex h-full flex-col rounded-2xl border border-line p-4 transition-all duration-200 hover:border-[#9945FF]/40 hover:shadow-[0_8px_24px_rgba(153,69,255,0.12)] sm:p-5"
+      className="flex h-full flex-col rounded-2xl border border-line p-3.5 transition-all duration-200 hover:border-[#9945FF]/40 hover:shadow-[0_8px_24px_rgba(153,69,255,0.12)] sm:p-4"
       style={{ background: "#0E0E12" }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -26,7 +26,7 @@ export default function StatCard({
       </div>
 
       <p
-        className="mt-3 break-words font-mono font-semibold tracking-tight tabular-nums"
+        className="mt-2 break-words font-mono font-semibold tracking-tight tabular-nums"
         style={{
           fontSize: "clamp(1.0625rem, 4.8vw, 1.5rem)",
           lineHeight: 1.15,
