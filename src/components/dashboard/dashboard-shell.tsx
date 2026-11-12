@@ -13,6 +13,7 @@ export default function DashboardShell({
   showRefresh = false,
   onRefresh,
   isRefreshing,
+  mainClassName,
 }: {
   title: string;
   description: string;
@@ -23,6 +24,8 @@ export default function DashboardShell({
   onRefresh?: () => void;
   /** External refreshing state for custom refresh handlers. */
   isRefreshing?: boolean;
+  /** Custom class name for the main content element. */
+  mainClassName?: string;
 }) {
   const [isNavOpen, setIsNavOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(() => {
@@ -119,7 +122,12 @@ export default function DashboardShell({
           isRefreshing={isRefreshing}
         />
 
-        <main className="flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:overflow-y-auto lg:px-9 lg:py-8">
+        <main
+          className={
+            mainClassName ??
+            "flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:overflow-y-auto lg:px-9 lg:py-8"
+          }
+        >
           {children}
         </main>
       </div>
