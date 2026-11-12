@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { WalletAvatarDropdown } from "@/components/wallet-avatar-dropdown";
+import NotificationBell from "@/components/notifications/notification-bell";
 import { MenuIcon, RefreshIcon } from "./icons";
 
 export default function TopBar({
@@ -88,6 +89,7 @@ export default function TopBar({
           </button>
         )}
 
+        <NotificationBell />
         <WalletAvatarDropdown />
       </div>
     </header>
