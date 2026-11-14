@@ -32,14 +32,14 @@ bot.catch((error: BotError<Context>) => {
 // Inline keyboard builders
 // ---------------------------------------------------------------------------
 const MAIN_MENU_KEYBOARD = new InlineKeyboard()
-  .text("📊 Payment Summary", "menu:summary")
-  .text("🧾 Recent Transactions", "menu:transactions")
-  .text("⏳ Pending Payments", "menu:pending")
-  .text("⚙️ Settings", "menu:settings")
-  .text("❓ Help", "menu:help");
+  .text("📊 Payment Summary", "payment_summary")
+  .text("🧾 Recent Transactions", "transactions")
+  .text("⏳ Pending Payments", "pending")
+  .text("⚙️ Settings", "settings")
+  .text("❓ Help", "help");
 
 const BACK_TO_MENU_KEYBOARD = new InlineKeyboard()
-  .text("🔙 Back to Menu", "menu:main");
+  .text("🔙 Back to Menu", "main_menu");
 
 // ---------------------------------------------------------------------------
 // Shared reply helpers
@@ -144,7 +144,8 @@ bot.command("status", async (ctx) => {
 });
 
 // ---------------------------------------------------------------------------
-// Callback query handler (inline keyboard)
+// Catch-all for any callback data not matched by the route handlers above.
+// This prevents silent drops when a future button sends unknown data.
 // ---------------------------------------------------------------------------
 bot.on("callback_query", async (ctx) => {
   const query = ctx.callbackQuery;
@@ -156,34 +157,19 @@ bot.on("callback_query", async (ctx) => {
     return;
   }
 
-  try {
-    if (data === "menu:main") {
-      await ctx.answerCallbackQuery();
-      await sendMainMenu(ctx);
-    } else if (data === "menu:summary") {
-      await ctx.answerCallbackQuery();
-      await sendAccountLinkingRequired(ctx);
-    } else if (data === "menu:transactions") {
-      await ctx.answerCallbackQuery();
-      await sendAccountLinkingRequired(ctx);
-    } else if (data === "menu:pending") {
-      await ctx.answerCallbackQuery();
-      await sendAccountLinkingRequired(ctx);
-    } else if (data === "menu:settings") {
-      await ctx.answerCallbackQuery();
-      await sendSettingsPlaceholder(ctx);
-    } else if (data === "menu:help") {
-      await ctx.answerCallbackQuery();
-      await sendHelpMessage(ctx);
-    } else {
-      // Unknown callback: acknowledge gracefully
-      await ctx.answerCallbackQuery({ text: "This option is not available yet." });
-    }
-  } catch (err) {
-    // Ack the query so Telegram stops showing the loading spinner.
-    await ctx.answerCallbackQuery().catch(() => {});
-    throw err;
+  if (
+    data === "payment_summary" ||
+    data === "transactions" ||
+    data === "pending" ||
+    data === "settings" ||
+    data === "help" ||
+    data === "main_menu"
+  ) {
+    // Handled by the route handler; nothing extra needed.
+    return;
   }
+
+  await ctx.answerCallbackQuery({ text: "This option is not available yet." });
 });
 
 // ---------------------------------------------------------------------------
@@ -216,6 +202,40 @@ Available commands: /start, /help, /status.`
 
 Use /start to open the main menu, /help for available commands, or /status to check your connection status.`
   );
+});
+
+// ---------------------------------------------------------------------------
+// Prefer route-style callback handlers to avoid accidental message-type
+// overlap. Keep them guarded so only known inline callbacks are answered.
+// ---------------------------------------------------------------------------
+bot.callbackQuery("payment_summary", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await sendAccountLinkingRequired(ctx);
+});
+
+bot.callbackQuery("transactions", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await sendAccountLinkingRequired(ctx);
+});
+
+bot.callbackQuery("pending", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await sendAccountLinkingRequired(ctx);
+});
+
+bot.callbackQuery("settings", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await sendSettingsPlaceholder(ctx);
+});
+
+bot.callbackQuery("help", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await sendHelpMessage(ctx);
+});
+
+bot.callbackQuery("main_menu", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await sendMainMenu(ctx);
 });
 
 // ---------------------------------------------------------------------------
