@@ -145,3 +145,69 @@ create policy "no public notification inserts"
 create policy "no public notification deletes"
   on notifications for delete
   using (false);
+
+-- ---------------------------------------------------------------------------
+-- Merchant authentication
+-- ---------------------------------------------------------------------------
+-- Short-lived wallet-signature auth challenges and the sessions they produce.
+-- Mirrors supabase/migrations/20261115150000_merchant_auth_final.sql. Sessions
+-- store only the SHA-256 hex digest of the cookie token, never the token itself.
+
+create table if not exists merchant_auth (
+  id                    uuid primary key default gen_random_uuid(),
+  challenge_nonce       text not null,
+  domain                text not null,
+  issued_at             timestamptz not null default now(),
+  expires_at            timestamptz not null,
+  session_token         text,
+  session_expires_at    timestamptz,
+  wallet_address        text not null,
+  created_at            timestamptz not null default now(),
+  deleted_at            timestamptz,
+  constraint merchant_auth_challenge_nonce_key unique (challenge_nonce),
+  constraint merchant_auth_session_token_key unique (session_token),
+  constraint merchant_auth_expiry_after_issue
+    check (expires_at > issued_at),
+  constraint merchant_auth_session_token_is_sha256_hex
+    check (session_token is null or session_token ~ '^[0-9a-f]{64}$'),
+  constraint merchant_auth_session_requires_expiry
+    check (session_token is null or session_expires_at is not null),
+  constraint merchant_auth_wallet_address_trimmed
+    check (wallet_address = btrim(wallet_address) and length(wallet_address) > 0),
+  constraint merchant_auth_challenge_fields_present
+    check (length(challenge_nonce) > 0 and length(domain) > 0)
+);
+
+-- Cleanup sweep for abandoned challenges.
+create index if not exists merchant_auth_open_challenges_expires_at
+  on merchant_auth (expires_at)
+  where session_token is null
+    and deleted_at is null;
+
+-- Pruning of expired sessions.
+create index if not exists merchant_auth_active_sessions_expires_at
+  on merchant_auth (session_expires_at)
+  where session_token is not null
+    and deleted_at is null;
+
+-- Wallet-scoped session listing.
+create index if not exists merchant_auth_wallet_sessions
+  on merchant_auth (wallet_address, session_expires_at desc)
+  where session_token is not null
+    and deleted_at is null;
+
+-- Server-only: no client policy is defined, so anon/authenticated can neither
+-- read nor write auth records. The service-role key bypasses RLS.
+alter table merchant_auth enable row level security;
+
+revoke all on table merchant_auth from public;
+revoke all on table merchant_auth from anon;
+revoke all on table merchant_auth from authenticated;
+
+grant select, insert, update, delete on table merchant_auth to service_role;
+
+create policy "no client access to auth records"
+  on merchant_auth for all
+  to anon, authenticated
+  using (false)
+  with check (false);
