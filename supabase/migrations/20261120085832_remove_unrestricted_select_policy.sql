@@ -1,22 +1,33 @@
--- PayProof Task: Remove unrestricted anonymous SELECT policy on payment_requests.
--- This migration removes the policy "checkout can read any request by reference"
--- which granted universal SELECT access to any anon client via using (true).
--- RLS remains enabled. The service-role key continues to bypass RLS entirely,
--- so all server-side operations are unaffected.
--- No new public SELECT policy is introduced.
--- No merchant JWT claims or assumptions are added.
--- No service-role permissions are changed.
 
--- Remove the unrestricted SELECT policy that grants universal access
-drop policy if exists "checkout can read any request by reference" on payment_requests;
+-- ============================================================
+-- PayProof: Remove Unrestricted Public SELECT Access
+-- Migration: 20261120085832_remove_unrestricted_select_policy
+-- ============================================================
+--
+-- Purpose:
+-- Remove the unrestricted SELECT policy that allowed
+-- anonymous and authenticated clients to read every row
+-- in public.payment_requests.
+--
+-- Security model:
+-- - Public checkout continues through server-side API routes.
+-- - Server-side database operations use the service-role key.
+-- - Service-role access bypasses RLS.
+-- - Merchant-facing access remains server-side and scoped
+--   to the authenticated merchant.
+--
+-- Important:
+-- - Does not delete or modify payment records.
+-- - Does not disable RLS.
+-- - Does not change table grants.
+-- - Does not modify the existing "no public writes" policy.
+-- - Does not create a replacement public SELECT policy.
+-- ============================================================
 
--- Preserve the no-public-writes policy (do not modify)
--- preserve policy "no public writes" on payment_requests for all using (false);
+DROP POLICY IF EXISTS
+  "checkout can read any request by reference"
+ON public.payment_requests;
 
--- RLS remains enabled on payment_requests (no alter table needed)
--- No additional grants or revocations.
-
--- Verification notes:
--- - Service-role key operations continue uninterrupted (bypasses RLS)
--- - No anon- or authenticated-key SELECT paths are opened
--- - Merchant dashboard and payment-history operations continue to use service-role
+-- ============================================================
+-- End of migration
+-- ============================================================
