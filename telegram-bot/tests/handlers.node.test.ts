@@ -34,13 +34,20 @@ import {
   toActiveTelegramLink,
   type HandlerDependencies,
   type MenuAction,
-} from "../src/handlers.js";
+}  from "../src/handlers.js";
+import {
+  NOTIF_TEST_ACTION,
+  NOTIFICATION_EVENT_TYPES,
+  type NotificationEventType,
+  type NotificationPreferenceStore,
+} from "../src/lib/notification-preferences.js";
 import {
   isVerifiedPayment,
   summarizePayments,
   type PayProofData,
   type StoredPayment,
 } from "../src/lib/payproof.js";
+import { sendTestNotificationToMerchant } from "../src/lib/telegram-notify.js";
 
 // ---------------------------------------------------------------------------
 // Harness: a real grammY Bot whose API calls are captured instead of sent.
@@ -110,6 +117,8 @@ function createHarness(
     lookupTelegramLink: async () => ({ state: "not_linked" }),
     data: fakeData(),
     unlinkTelegramAccount: async () => ({ ok: false }),
+    notificationPreferences: memoryPreferenceStore(),
+    sendTestNotification: async () => ({ ok: true }),
     ...deps,
   };
 
@@ -121,6 +130,47 @@ function createHarness(
 async function deliver(bot: Bot, update: Update): Promise<void> {
   await bot.init();
   await bot.handleUpdate(update);
+}
+
+/**
+ * In-memory preference store: tests never touch Supabase, and it records every
+ * write so merchant isolation and no-op paths can be asserted.
+ */
+function memoryPreferenceStore(
+  initial: Partial<Record<NotificationEventType, boolean | null>> = {},
+): NotificationPreferenceStore & {
+  writes: Array<{ merchantAddress: string; eventType: NotificationEventType; enabled: boolean }>;
+  state: Map<string, Record<NotificationEventType, boolean | null>>;
+} {
+  const empty = (): Record<NotificationEventType, boolean | null> => ({
+    payment_request_created: null,
+    payment_received: null,
+    payment_request_expired: null,
+    payment_request_cancelled: null,
+  });
+
+  const state = new Map<string, Record<NotificationEventType, boolean | null>>();
+  const writes: Array<{
+    merchantAddress: string;
+    eventType: NotificationEventType;
+    enabled: boolean;
+  }> = [];
+
+  return {
+    state,
+    writes,
+    async getAll(merchantAddress) {
+      const existing = state.get(merchantAddress);
+      if (existing) return { ...existing };
+      return { ...empty(), ...initial };
+    },
+    async set(merchantAddress, eventType, enabled) {
+      const current = state.get(merchantAddress) ?? { ...empty(), ...initial };
+      state.set(merchantAddress, { ...current, [eventType]: enabled });
+      writes.push({ merchantAddress, eventType, enabled });
+      return true;
+    },
+  };
 }
 
 function callbackUpdate(data?: string): Update {
@@ -467,7 +517,8 @@ test("linked account: /status shows the wallet and honest notification state", a
   assert.match(text, /Merchant account: Linked/);
   assert.ok(text.includes(`Merchant wallet: ${MERCHANT_WALLET}`));
   assert.doesNotMatch(text, /Merchant wallet: None/);
-  assert.match(text, /Payment notifications: Not configured/);
+  assert.match(text, /Payment notifications: Ready/);
+  assert.match(text, /only when enabled/i);
   assert.equal(queriedId, FROM.id, "lookup must use the Telegram user id");
 });
 
@@ -786,48 +837,53 @@ test("receipts: unlinked account is told to link instead of querying", async () 
 // Settings and notifications
 // ---------------------------------------------------------------------------
 
-test("linked settings shows the wallet with honest notification state", async () => {
-  const { bot, calls } = linkedHarness(fakeData());
+test("linked settings shows the wallet and the saved per-event state", async () => {
+  const store = memoryPreferenceStore({ payment_received: true });
+  const { bot, calls } = createHarness({
+    lookupTelegramLink: async () => ({ state: "linked", link: ACTIVE_LINK }),
+    data: fakeData(),
+    notificationPreferences: store,
+  });
+
   await deliver(bot, callbackUpdate("settings"));
 
   const reply = firstReply(calls);
   const text = messageText(reply);
   assert.match(text, /Merchant account: Linked/);
   assert.ok(text.includes(MERCHANT_WALLET));
-  assert.match(text, /Payment notifications: Not configured/);
+  assert.match(text, /Payment received: Enabled/);
+  assert.match(text, /Request created: Not set/);
   assert.doesNotMatch(text, /Merchant wallet: None/);
-  assert.doesNotMatch(text, /future update/i);
   assert.ok(replyMarkup(reply).includes('"notifications"'));
 });
 
-test("notifications screen exposes only implemented, persisted settings", async () => {
+test("unlinked notifications screen offers linking and no toggles", async () => {
   const { bot, calls } = createHarness();
   await deliver(bot, callbackUpdate("notifications"));
 
   const reply = firstReply(calls);
   const text = messageText(reply);
   assert.equal(text, NOTIFICATIONS_TEXT);
-  assert.match(text, /Telegram payment alerts: Not configured/);
-  assert.match(text, /not enabled yet/);
-  assert.match(text, /after verified payments/i);
+  assert.match(text, /never triggered by a browser request/i);
 
-  // No fake toggle exists, because no preference storage is available.
+  // Nothing to toggle without a linked merchant, so no toggle button exists.
   const markup = replyMarkup(reply);
-  assert.doesNotMatch(markup, /notif_(enable|disable|toggle|on|off)/i);
+  assert.doesNotMatch(markup, /notif_toggle:/);
+  assert.ok(markup.includes('"connect"'));
   assert.ok(markup.includes('"main_menu"'));
 });
 
-test("duplicate prevention and verification trigger are stated, not faked", async () => {
+test("the notifications screen states the trusted trigger and makes no delivery claim", async () => {
   // The bot must not push messages on its own; a single interaction yields a
-  // single reply. Duplicate DB rows are prevented by unique indexes, not by the
-  // bot inventing a second delivery channel.
+  // single reply, and the text must not promise delivery guarantees the
+  // pipeline does not make.
   const { bot, calls } = createHarness();
   await deliver(bot, callbackUpdate("notifications"));
 
   assert.equal(callsOf(calls, "sendMessage").length, 1);
   assert.equal(callsOf(calls, "answerCallbackQuery").length, 1);
-  assert.match(NOTIFICATIONS_TEXT, /verifies a payment on Solana/);
-  assert.match(NOTIFICATIONS_TEXT, /prevent duplicates/);
+  assert.match(NOTIFICATIONS_TEXT, /verified on Solana/);
+  assert.doesNotMatch(NOTIFICATIONS_TEXT, /exactly once|guaranteed/i);
 });
 
 // ---------------------------------------------------------------------------
@@ -1046,3 +1102,4 @@ test("/start without a linking payload still shows the dashboard", async () => {
   assert.equal(messages.length, 1);
   assert.equal(messageText(messages[0]), MAIN_MENU_TEXT);
 });
+
