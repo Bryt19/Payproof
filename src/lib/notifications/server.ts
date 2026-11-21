@@ -307,3 +307,116 @@ export async function markAllNotificationsRead(input: {
     return { ok: false, message: "Could not update notifications." };
   }
 }
+
+export const MAX_DELIVERY_ATTEMPTS = 3;
+
+export async function checkNotificationPreference(
+  db: SupabaseClient,
+  merchantAddress: string,
+  eventType: NotificationType,
+): Promise<boolean> {
+  try {
+    const { data, error } = await db
+      .from("notification_preferences")
+      .select("enabled")
+      .eq("merchant_address", merchantAddress)
+      .eq("event_type", eventType)
+      .maybeSingle();
+
+    if (error) {
+      logFailure("check-preference", error);
+      return false;
+    }
+
+    // Default to true if no preference record exists, or return user preference
+    return data ? Boolean(data.enabled) : true;
+  } catch {
+    return false;
+  }
+}
+
+export async function resolveActiveTelegramLink(
+  db: SupabaseClient,
+  merchantAddress: string,
+): Promise<{
+  id: string;
+  telegram_chat_id: number;
+  telegram_username: string | null;
+} | null> {
+  try {
+    const { data, error } = await db
+      .from("telegram_links")
+      .select("id, telegram_chat_id, telegram_username")
+      .eq("merchant_wallet_address", merchantAddress)
+      .is("unlinked_at", null)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function deliverNotificationToTelegram(
+  db: SupabaseClient,
+  input: {
+    notificationId: string;
+    merchantAddress: string;
+    eventType: NotificationType;
+    payload?: any;
+    sendOptions?: any;
+    claimId?: string;
+    result?: { attempts: number };
+  },
+): Promise<{ performed: boolean; reason?: string }> {
+  try {
+    const { data: current } = await db
+      .from("notification_deliveries")
+      .select("attempt, max_attempts, status")
+      .eq("notification_id", input.notificationId)
+      .maybeSingle();
+
+    const newAttempt = Math.min(
+      (current?.attempt ?? 0) + input.result.attempts,
+      MAX_DELIVERY_ATTEMPTS
+    );
+
+    const update: Record<string, unknown> = {
+      attempt: newAttempt,
+      sent_at: new Date().toISOString(),
+    };
+
+    if (input.claimId) {
+      const { data: updatedRows, error } = await db
+        .from("notification_deliveries")
+        .update(update)
+        .eq("notification_id", input.notificationId)
+        .eq("claim_id", input.claimId)
+        .select("id");
+
+      if (error) {
+        return { performed: false, reason: error.message };
+      }
+
+      if (!updatedRows || updatedRows.length === 0) {
+        return { performed: false, reason: "lost claim ownership" };
+      }
+    } else {
+      const { error } = await db
+        .from("notification_deliveries")
+        .update(update)
+        .eq("notification_id", input.notificationId);
+      if (error) {
+        return { performed: false, reason: error.message };
+      }
+    }
+
+    return { performed: true };
+  } catch (err: any) {
+    return { performed: false, reason: err?.message ?? "unknown error" };
+  }
+}

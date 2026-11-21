@@ -20,6 +20,10 @@ registerHooks({
       }
     }
 
+    if (specifier === "next/headers" || specifier === "next/server" || specifier === "next/navigation") {
+      return nextResolve(`${specifier}.js`, context);
+    }
+
     // Mirror the tsconfig `@/*` -> `./src/*` path alias so tests can import
     // application modules that use it.
     if (specifier.startsWith("@/")) {
