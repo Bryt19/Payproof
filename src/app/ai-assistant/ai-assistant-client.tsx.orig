@@ -1,0 +1,245 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import DashboardShell from "@/components/dashboard/dashboard-shell";
+import { AssistantIcon, SendPlaneIcon, TrashIcon } from "@/components/dashboard/icons";
+import { AssistantBubble, UserBubble } from "@/components/ai-chat/message-bubble";
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  timestamp: Date;
+}
+
+type ChatState =
+  | { status: "empty" }
+  | { status: "ready"; messages: readonly Message[] }
+  | { status: "loading"; lastText: string; messages: readonly Message[] };
+
+const FEATURED_PROMPTS = [
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-[#9945FF]">
+        <path d="M14 3.5H7a1.8 1.8 0 0 0-1.8 1.8v13.4A1.8 1.8 0 0 0 7 20.5h10a1.8 1.8 0 0 0 1.8-1.8V8.3Z" />
+        <path d="M14 3.5v4.8h4.8" />
+        <path d="M8.8 13h6.4M8.8 16.4h4" />
+      </svg>
+    ),
+    title: "Create a Payment Request",
+    description: "How do I create and share a Solana Devnet payment link?",
+    prompt: "How do I create a payment request?",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-[#14F195]">
+        <path d="M12 3.5 18.5 6v5.2c0 4-2.7 7.7-6.5 8.8-3.8-1.1-6.5-4.8-6.5-8.8V6L12 3.5Z" />
+        <path d="m9.2 11.8 1.9 1.9 3.7-3.7" />
+      </svg>
+    ),
+    title: "On-Chain Verification",
+    description: "How does Payproof independently verify Devnet transfers?",
+    prompt: "How does Payproof verify transactions on Solana Devnet?",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-[#00C2FF]">
+        <path d="M6 3.5h12v17l-2.4-1.6-2.1 1.6-1.5-1.6-1.5 1.6-2.1-1.6L6 20.5Z" />
+        <path d="M9.2 8.2h5.6M9.2 11.8h5.6" />
+      </svg>
+    ),
+    title: "Draft an Itemized Invoice",
+    description: "Generate structured line items and totals for client billing.",
+    prompt: "Can you draft an invoice for web development services?",
+  },
+  {
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4 text-[#C14BF0]">
+        <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+      </svg>
+    ),
+    title: "Invoices vs. Requests",
+    description: "Compare lightweight checkouts with formal corporate billing.",
+    prompt: "What is the difference between a payment request and an invoice?",
+  },
+];
+
+function makeUserMessage(text: string): Message {
+  return {
+    id: `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    role: "user",
+    text,
+    timestamp: new Date(),
+  };
+}
+
+function makeAssistantMessageFromText(text: string): Message {
+  return {
+    id: `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    role: "assistant",
+    text,
+    timestamp: new Date(),
+  };
+}
+
+function makeAssistantErrorMessage(errorMessage: string): Message {
+  return {
+    id: `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    role: "assistant",
+    text: `I hit a problem reaching the AI assistant: ${errorMessage}`,
+    timestamp: new Date(),
+  };
+}
+
+export default function AIAssistantClient() {
+  const [state, setState] = useState<ChatState>({ status: "empty" });
+  const [inputValue, setInputValue] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposing = useRef(false);
+
+  const messages =
+    state.status === "ready" || state.status === "loading"
+      ? state.messages
+      : [];
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [state]);
+
+  const normalizedInput = inputValue.trim();
+
+  // Auto-resize textarea based on content
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(e.target.value);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`;
+    }
+  };
+
+  const fetchAssistantReply = useCallback(
+    async (conversation: readonly Message[]): Promise<string> => {
+      const response = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messages: conversation.map((message) => ({
+            role: message.role,
+            text: message.text,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(data.error ?? "The AI assistant request failed.");
+      }
+
+      const data = (await response.json()) as { text?: string };
+      return data.text ?? "";
+    },
+    [],
+  );
+
+  const sendMessage = useCallback(
+    (textToSend: string) => {
+      const cleanText = textToSend.trim();
+      if (!cleanText) return;
+
+      const userMessage = makeUserMessage(cleanText);
+      setInputValue("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
+
+      const currentList =
+        state.status === "ready" || state.status === "loading"
+          ? state.messages
+          : [];
+      const updatedWithUser = [...currentList, userMessage];
+
+      setState({
+        status: "loading",
+        lastText: cleanText,
+        messages: updatedWithUser,
+      });
+
+      fetchAssistantReply(updatedWithUser)
+        .then((text) => {
+          if (!text) {
+            setState({
+              status: "ready",
+              messages: updatedWithUser,
+            });
+            return;
+          }
+
+          const assistantMessage = makeAssistantMessageFromText(text);
+          setState({
+            status: "ready",
+            messages: [...updatedWithUser, assistantMessage],
+          });
+        })
+        .catch((error) => {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "The AI assistant request failed.";
+          const assistantMessage = makeAssistantErrorMessage(message);
+
+          setState({
+            status: "ready",
+            messages: [...updatedWithUser, assistantMessage],
+          });
+        });
+    },
+    [state, fetchAssistantReply],
+  );
+
+  const handleSend = () => {
+    sendMessage(normalizedInput);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (!isComposing.current && normalizedInput) {
+        handleSend();
+      }
+    }
+  };
+
+  const handleNewConversation = () => {
+    setState({ status: "empty" });
+    setInputValue("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
+  };
+
+  const handleClearConversation = () => {
+    setState({ status: "empty" });
+  };
+
+  return (
+    <DashboardShell
+      title="AI Assistant"
+      description="Your intelligent payment and analytics assistant."
+    >
+      <div className="mx-auto flex h-[calc(100dvh-8.75rem)] max-w-5xl flex-col gap-4 sm:h-[calc(100dvh-8.5rem)] lg:h-[calc(100dvh-8rem)]">
+        {/* Header Bar */}
+        <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] bg-[#121217]/80 px-3 py-2.5 sm:px-6 sm:py-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="relative flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#9945FF]/30 bg-gradient-to-tr from-[#9945FF]/20 to-[#C14BF0]/20 shadow-[0_0_12px_rgba(153,69,255,0.25)]">
+              <AssistantIcon className="size-4 text-[#C14BF0]" />
+            </div>
+            

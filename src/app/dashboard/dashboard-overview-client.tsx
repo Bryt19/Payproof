@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import Link from "next/link";
 import DashboardShell from "@/components/dashboard/dashboard-shell";
 import StatCard from "@/components/dashboard/stat-card";
 import ActivitySection from "@/components/dashboard/activity-section";
 import DashboardCharts from "@/components/dashboard/dashboard-charts";
 import { QuickActionsCard } from "@/components/dashboard/quick-actions-card";
+import CreateRequestDialog from "@/components/payment-requests/create-request-dialog";
 import CreateFab from "@/components/ui/create-fab";
 import {
   ReceivedIcon,
@@ -48,6 +48,8 @@ export default function DashboardOverviewClient() {
   const merchant = typeof address === "string" ? address.trim() : "";
   const [state, setState] = useState<LoadState>({ status: "loading" });
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [createdNotice, setCreatedNotice] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (!merchant) {
@@ -121,9 +123,9 @@ export default function DashboardOverviewClient() {
       showRefresh
       onRefresh={() => void fetchData()}
       isRefreshing={isRefreshing}
-      mainClassName="flex-1 px-4 py-3.5 sm:px-6 sm:py-4 lg:px-8 lg:py-5 lg:overflow-y-auto overscroll-none"
+      mainClassName="flex-1 px-4 py-3.5 sm:px-6 sm:py-4 lg:px-8 lg:py-4.5 lg:overflow-y-auto overscroll-none"
     >
-      <div className="space-y-4 lg:space-y-4.5 pb-20 sm:pb-0">
+      <div className="space-y-3.5 lg:space-y-3.5 pb-16 sm:pb-0">
         <div className="flex flex-wrap items-start justify-between gap-2.5 sm:gap-3">
           <div>
             <h2 className="text-sm font-medium text-neutral-200">
@@ -134,8 +136,12 @@ export default function DashboardOverviewClient() {
               Solana Devnet. Data shown is for the connected wallet.
             </p>
           </div>
-          <Link
-            href="/payment-requests"
+          <button
+            type="button"
+            onClick={() => {
+              setCreatedNotice(null);
+              setIsCreateOpen(true);
+            }}
             className="btn-brand-gradient hidden min-h-10 items-center justify-center gap-2 rounded-3xl px-4 py-2 text-xs font-semibold text-white shadow-lg transition-transform hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:inline-flex"
           >
             <svg
@@ -150,10 +156,26 @@ export default function DashboardOverviewClient() {
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
             <span>New payment</span>
-          </Link>
+          </button>
         </div>
 
-        <CreateFab label="New payment" href="/payment-requests" />
+        {createdNotice ? (
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-xl border border-[#14F195]/25 bg-[#14F195]/[0.06] px-4 py-2.5 text-xs text-[#14F195]"
+          >
+            <span className="size-1.5 rounded-full bg-[#14F195]" />
+            <span>{createdNotice}</span>
+          </div>
+        ) : null}
+
+        <CreateFab
+          label="New payment"
+          onClick={() => {
+            setCreatedNotice(null);
+            setIsCreateOpen(true);
+          }}
+        />
 
         {state.status === "error" ? (
           <div
@@ -208,7 +230,7 @@ export default function DashboardOverviewClient() {
               merchantAddress={merchant}
             />
 
-            <div className="grid gap-4 lg:gap-5 xl:grid-cols-[1fr_280px]">
+            <div className="grid gap-3.5 lg:gap-4 xl:grid-cols-[1fr_280px] xl:items-start">
               <ActivitySection rows={state.data.activity} />
               <QuickActionsCard />
             </div>
@@ -220,6 +242,24 @@ export default function DashboardOverviewClient() {
           </>
         ) : null}
       </div>
+
+      {isCreateOpen && (
+        <CreateRequestDialog
+          onClose={() => setIsCreateOpen(false)}
+          onCreated={() => {
+            // The dashboard closes on save; the confirmation step is only
+            // used by the Payment Requests page.
+          }}
+          onSaved={(request) => {
+            setIsCreateOpen(false);
+            setCreatedNotice(`Payment request ${request.reference} created.`);
+            void fetchData();
+          }}
+          onPersistenceNotice={(notice) => {
+            if (notice) setCreatedNotice(notice);
+          }}
+        />
+      )}
     </DashboardShell>
   );
 }
