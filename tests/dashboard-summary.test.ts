@@ -79,7 +79,7 @@ test("sums only verified paid requests and counts lifecycle statuses correctly",
   assert.equal(summary.activity.length, 5);
 });
 
-test("a paid row without verifier evidence is not counted as received", () => {
+test("a paid row without verifier evidence is not counted as confirmed or received", () => {
   const requests = [
     paymentRequest({
       id: "unverified-paid",
@@ -98,7 +98,7 @@ test("a paid row without verifier evidence is not counted as received", () => {
   const summary = buildDashboardSummary(requests);
 
   assert.equal(statValue(summary, "total-received"), "0");
-  assert.equal(statValue(summary, "successful-payments"), "2");
+  assert.equal(statValue(summary, "successful-payments"), "0");
   assert.equal(statValue(summary, "pending-payments"), "0");
 });
 
@@ -116,7 +116,7 @@ test("a paid row missing only the payer address is not counted as received", () 
   const summary = buildDashboardSummary(requests);
 
   assert.equal(statValue(summary, "total-received"), "0");
-  assert.equal(statValue(summary, "successful-payments"), "1");
+  assert.equal(statValue(summary, "successful-payments"), "0");
   assert.equal(statValue(summary, "pending-payments"), "0");
 });
 
@@ -166,6 +166,48 @@ test("shows at most the most recent activity rows in repository order", () => {
   assert.equal(summary.activity[0]?.id, "PR-0");
   assert.equal(summary.activity.at(-1)?.id, `PR-${DASHBOARD_ACTIVITY_LIMIT - 1}`);
   assert.equal(statValue(summary, "payment-requests"), String(requests.length));
+});
+
+test("keeps an older pending request visible in activity and separate from failed", () => {
+  const requests = [
+    ...Array.from({ length: DASHBOARD_ACTIVITY_LIMIT + 2 }, (_, index) =>
+      paymentRequest({
+        id: `paid-${index}`,
+        status: "paid",
+        transactionSignature: `signature-${index}`,
+        payerAddress: "payer",
+        verifiedAt: "2026-11-05T11:00:00.000Z",
+        createdAt: `2026-11-20T10:00:0${index}.000Z`,
+      }),
+    ),
+    paymentRequest({
+      id: "old-pending",
+      status: "pending",
+      createdAt: "2026-11-01T09:00:00.000Z",
+    }),
+    paymentRequest({
+      id: "failed-1",
+      status: "failed",
+      createdAt: "2026-11-21T09:00:00.000Z",
+    }),
+  ];
+
+  const summary = buildDashboardSummary(requests);
+
+  // The old pending request is still shown even though newer rows outnumber
+  // the activity limit, and failed requests are not counted as pending.
+  assert.equal(summary.activity.length, DASHBOARD_ACTIVITY_LIMIT);
+  assert.equal(summary.activity[0]?.id, "old-pending");
+  assert.equal(summary.activity[0]?.status, "pending");
+  assert.equal(
+    summary.activity.some((row) => row.id === "failed-1"),
+    false,
+  );
+  assert.equal(statValue(summary, "pending-payments"), "1");
+  assert.equal(
+    statValue(summary, "successful-payments"),
+    String(DASHBOARD_ACTIVITY_LIMIT + 2),
+  );
 });
 
 test("an empty database produces zero figures and no activity", () => {

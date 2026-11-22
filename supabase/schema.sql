@@ -133,6 +133,7 @@ create table if not exists notifications (
     check (type in (
       'payment_request_created',
       'payment_received',
+      'payment_failed',
       'payment_request_expired',
       'payment_request_cancelled'
     )),
@@ -167,6 +168,11 @@ create unique index if not exists notifications_unique_payment_received
 create unique index if not exists notifications_unique_request_status_event
   on notifications (payment_request_id, type)
   where type in ('payment_request_expired', 'payment_request_cancelled')
+    and payment_request_id is not null;
+
+create unique index if not exists notifications_unique_payment_failed
+  on notifications (payment_request_id, type)
+  where type = 'payment_failed'
     and payment_request_id is not null;
 
 alter table notifications enable row level security;
