@@ -236,7 +236,7 @@ function createFakeRepository(
 
       if (
         reference !== stored.reference ||
-        stored.status !== "pending" ||
+        (stored.status !== "pending" && stored.status !== "failed") ||
         stored.transactionSignature !== null
       ) {
         return "unchanged";
@@ -360,6 +360,54 @@ test("failed transaction is rejected and never marked paid", async () => {
   assert.equal(result.status, "rejected");
   assert.equal(result.reason, "transaction-failed");
   assert.equal(fake.markCalls, 0);
+});
+
+test("a failed request is recovered to paid by a verified on-chain payment", async () => {
+  const payer = createWallet();
+  const merchant = createWallet();
+  const request = paymentRequest({
+    merchantAddress: merchant.address,
+    reference: randomAddress(),
+    status: "failed",
+  });
+  const fixture = buildFixture({
+    payer,
+    merchant: merchant.address,
+    reference: address(request.reference),
+  });
+
+  const { service, fake } = createService(request, fixture);
+
+  const result = await service.verify({
+    reference: request.reference,
+    signature: fixture.signature,
+  });
+
+  assert.equal(result.status, "verified");
+  assert.equal(fake.markCalls, 1);
+  assert.equal(fake.stored.status, "paid");
+  assert.equal(fake.stored.transactionSignature, fixture.signature);
+});
+
+test("an expired request stays closed and is never marked paid", async () => {
+  const merchant = createWallet();
+  const request = paymentRequest({
+    merchantAddress: merchant.address,
+    reference: randomAddress(),
+    status: "expired",
+  });
+
+  const { service, fake } = createService(request, null);
+
+  const result = await service.verify({
+    reference: request.reference,
+    signature: getBase58Decoder().decode(randomBytes(64)),
+  });
+
+  assert.equal(result.status, "rejected");
+  assert.equal(result.reason, "request-not-payable");
+  assert.equal(fake.markCalls, 0);
+  assert.equal(fake.stored.status, "expired");
 });
 
 test("transaction metadata failure is rejected", async () => {
