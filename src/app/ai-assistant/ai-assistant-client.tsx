@@ -18,7 +18,12 @@ interface Message {
 type ChatState =
   | { status: "empty" }
   | { status: "ready"; messages: readonly Message[] }
-  | { status: "loading"; lastText: string; messages: readonly Message[] };
+  | {
+      status: "loading";
+      lastText: string;
+      messages: readonly Message[];
+      streamText?: string;
+    };
 
 const FEATURED_PROMPTS = [
   {
@@ -126,7 +131,10 @@ export default function AIAssistantClient() {
   };
 
   const fetchAssistantReply = useCallback(
-    async (conversation: readonly Message[]): Promise<string> => {
+    async (
+      conversation: readonly Message[],
+      onChunk?: (partialText: string) => void,
+    ): Promise<string> => {
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: {
@@ -147,8 +155,42 @@ export default function AIAssistantClient() {
         throw new Error(data.error ?? "The AI assistant request failed.");
       }
 
-      const data = (await response.json()) as { text?: string };
-      return data.text ?? "";
+      const contentType = response.headers.get("content-type") ?? "";
+
+      // Gemini responses arrive as a text/plain stream; append chunks as they
+      // are generated so the reply appears progressively.
+      if (contentType.includes("text/plain") && response.body) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            fullText += decoder.decode(value, { stream: true });
+            onChunk?.(fullText);
+          }
+        }
+        fullText += decoder.decode();
+        onChunk?.(fullText);
+
+        if (!fullText.trim()) {
+          throw new Error(
+            "The AI assistant returned an empty response. Please try again.",
+          );
+        }
+        return fullText;
+      }
+
+      const data = (await response.json()) as { text?: string; error?: string };
+      if (!data.text || !data.text.trim()) {
+        throw new Error(
+          data.error ??
+            "The AI assistant returned an empty response. Please try again.",
+        );
+      }
+      return data.text;
     },
     [],
   );
@@ -174,9 +216,17 @@ export default function AIAssistantClient() {
         status: "loading",
         lastText: cleanText,
         messages: updatedWithUser,
+        streamText: "",
       });
 
-      fetchAssistantReply(updatedWithUser)
+      fetchAssistantReply(updatedWithUser, (partialText) => {
+        setState({
+          status: "loading",
+          lastText: cleanText,
+          messages: updatedWithUser,
+          streamText: partialText,
+        });
+      })
         .then((text) => {
           if (!text) {
             setState({
@@ -356,15 +406,27 @@ export default function AIAssistantClient() {
                     <path d="M12 3.8 13.5 8l4.2 1.5-4.2 1.5L12 15.2 10.5 11 6.3 9.5 10.5 8Z" />
                   </svg>
                 </div>
-                <div className="rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#16161B] px-4 py-3 shadow-sm flex items-center gap-2.5">
-                  <div className="flex items-center gap-1.5">
-                    <span className="size-2 rounded-full bg-[#9945FF] animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <span className="size-2 rounded-full bg-[#C14BF0] animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <span className="size-2 rounded-full bg-[#14F195] animate-bounce" style={{ animationDelay: "300ms" }} />
-                  </div>
-                  <span className="text-xs text-neutral-400 font-medium">
-                    Payproof AI is thinking…
-                  </span>
+                <div className="min-w-0 max-w-full rounded-2xl rounded-tl-sm border border-white/[0.08] bg-[#16161B] px-4 py-3 shadow-sm">
+                  {state.streamText ? (
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-100">
+                      {state.streamText}
+                      <span
+                        aria-hidden="true"
+                        className="ml-0.5 inline-block h-4 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-[#9945FF]"
+                      />
+                    </p>
+                  ) : (
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="size-2 rounded-full bg-[#9945FF] animate-bounce" style={{ animationDelay: "0ms" }} />
+                        <span className="size-2 rounded-full bg-[#C14BF0] animate-bounce" style={{ animationDelay: "150ms" }} />
+                        <span className="size-2 rounded-full bg-[#14F195] animate-bounce" style={{ animationDelay: "300ms" }} />
+                      </div>
+                      <span className="text-xs text-neutral-400 font-medium">
+                        Payproof AI is thinking…
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
