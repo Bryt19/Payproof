@@ -44,7 +44,7 @@ export type NewPaymentRequestInput = {
   customerName: string | null;
   customerEmail: string | null;
   /** Set server-side from the merchant's connected wallet. Not verified as ownership. */
-  merchantAddress: string | null;
+  merchantAddress?: string | null;
 };
 
 /** Checkout links are addressed by reference, not by the random request ID. */

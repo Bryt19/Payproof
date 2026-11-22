@@ -84,7 +84,7 @@ function formatCreatedAt(value: string): string {
 }
 
 function StatusPill({ status }: { status: PaymentRequest["status"] }) {
-  const style = statusStyles[status];
+  const style = statusStyles[status] ?? statusStyles.pending;
 
   return (
     <span

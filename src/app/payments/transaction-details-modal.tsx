@@ -97,7 +97,7 @@ export default function TransactionDetailsModal({
     };
   }, [onClose]);
 
-  const status = statusStyles[payment.status];
+  const status = statusStyles[payment.status] ?? statusStyles.pending;
   const explorerUrl = payment.transactionSignature
     ? getDevnetTransactionExplorerUrl(payment.transactionSignature)
     : undefined;

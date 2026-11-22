@@ -13,7 +13,10 @@ create table if not exists payment_requests (
   customer_email text,
   merchant_address text,
   status        text not null default 'pending'
-    check (status in ('pending', 'paid', 'expired', 'cancelled')),
+    check (status in ('pending', 'paid', 'expired', 'cancelled', 'failed')),
+  rejection_count INTEGER NOT NULL DEFAULT 0
+    CONSTRAINT payment_requests_rejection_count_non_negative
+    CHECK (rejection_count >= 0),
   transaction_signature text,
   payer_address text,
   verified_at   timestamptz,
@@ -76,6 +79,45 @@ create policy "checkout can read any request by reference"
 create policy "no public writes"
   on payment_requests for all
   using (false);
+
+-- ---------------------------------------------------------------------------
+-- Payment attempt tracking
+-- ---------------------------------------------------------------------------
+-- Stores SHA-256 hashes of cryptographically random attempt tokens reported
+-- by customers when a wallet rejects a payment. Three rejections mark a
+-- payment request as `failed`.
+
+create table if not exists payment_request_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_request_id TEXT NOT NULL
+    REFERENCES payment_requests(id) ON DELETE CASCADE,
+  attempt_hash TEXT NOT NULL
+    CHECK (attempt_hash ~ '^[0-9a-f]{64}$'),
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  invalidated_at TIMESTAMPTZ,
+  result TEXT NOT NULL
+    CHECK (result IN ('pending', 'rejected')),
+  ip_address INET,
+  wallet_address TEXT,
+  CONSTRAINT payment_request_attempts_invalidated_not_consumed
+  CHECK (invalidated_at IS NULL OR consumed_at IS NULL),
+  CONSTRAINT payment_request_attempts_expiry_after_issue
+  CHECK (expires_at > issued_at),
+  CONSTRAINT payment_request_attempts_unique_hash_per_request
+  UNIQUE (payment_request_id, attempt_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_request_attempts_payment_request_id
+  ON payment_request_attempts (payment_request_id);
+
+CREATE INDEX IF NOT EXISTS idx_payment_request_attempts_issued_at
+  ON payment_request_attempts (issued_at);
+
+CREATE INDEX IF NOT EXISTS idx_payment_request_attempts_outstanding
+  ON payment_request_attempts (payment_request_id)
+  WHERE consumed_at IS NULL AND invalidated_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- Notifications

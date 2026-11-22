@@ -37,6 +37,57 @@ const statusStyles: Record<
   },
 };
 
+const DEFAULT_STATUS_STYLE = {
+  label: "Unknown",
+  bg: "rgba(255,255,255,0.03)",
+  text: "rgba(255,255,255,0.4)",
+  dot: "#737373",
+};
+
+const EXTRA_STATUS_STYLES: Record<
+  string,
+  { label: string; bg: string; text: string; dot: string }
+> = {
+  failed: {
+    label: "Failed",
+    bg: "rgba(239,68,68,0.08)",
+    text: "#ef4444",
+    dot: "#ef4444",
+  },
+  confirmed: {
+    label: "Paid",
+    bg: "rgba(20,241,149,0.08)",
+    text: "#14F195",
+    dot: "#14F195",
+  },
+  completed: {
+    label: "Paid",
+    bg: "rgba(20,241,149,0.08)",
+    text: "#14F195",
+    dot: "#14F195",
+  },
+};
+
+export function getStatusStyle(rawStatus?: string | null): {
+  label: string;
+  bg: string;
+  text: string;
+  dot: string;
+} {
+  if (!rawStatus) return DEFAULT_STATUS_STYLE;
+  const key = rawStatus.toLowerCase().trim();
+  if (key in statusStyles) {
+    return statusStyles[key as PaymentRequestStatus];
+  }
+  if (key in EXTRA_STATUS_STYLES) {
+    return EXTRA_STATUS_STYLES[key];
+  }
+  return {
+    ...DEFAULT_STATUS_STYLE,
+    label: rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1),
+  };
+}
+
 const createdAtFormatter = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeZone: "UTC",
@@ -55,7 +106,7 @@ function searchText(row: DashboardActivityRow): string {
     row.amountSol,
     "SOL",
     row.payerAddress ?? "",
-    statusStyles[row.status].label,
+    getStatusStyle(row.status).label,
     row.transactionSignature ?? "",
     row.reference,
     row.id,
@@ -183,7 +234,7 @@ export default function ActivitySection({
               </li>
             ) : (
               visibleRows.map((row) => {
-                const status = statusStyles[row.status];
+                const status = getStatusStyle(row.status);
 
                 return (
                   <li key={row.id} className="px-4 py-3.5">
@@ -305,7 +356,7 @@ export default function ActivitySection({
                 </tr>
               ) : (
                 visibleRows.map((row) => {
-                  const status = statusStyles[row.status];
+                  const status = getStatusStyle(row.status);
 
                   return (
                     <tr
