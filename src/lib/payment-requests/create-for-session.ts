@@ -1,6 +1,7 @@
 import type { MerchantSessionState } from "@/lib/auth/session-validation";
 import {
   describeRepositoryInitializationFailure,
+  type AuthorizedCreationOutcome,
   type PaymentRequestRepository,
 } from "./repository";
 import type { NewPaymentRequestInput, PaymentRequest } from "./types";
@@ -12,17 +13,38 @@ export const CREATE_UNAUTHENTICATED_MESSAGE =
 export type CreatePaymentRequestFailureReason =
   | "unauthenticated"
   | "rejected"
-  | "unavailable";
+  | "unavailable"
+  | "authorization";
 
 export type CreatePaymentRequestResult =
-  | { ok: true; request: PaymentRequest }
-  | { ok: false; reason: CreatePaymentRequestFailureReason; error: string };
+  | {
+      ok: true;
+      request: PaymentRequest;
+      authorizationOutcome?: "created" | "already_consumed";
+    }
+  | {
+      ok: false;
+      reason: CreatePaymentRequestFailureReason;
+      error: string;
+      authorizationOutcome?: Exclude<
+        AuthorizedCreationOutcome,
+        "created" | "already_consumed"
+      >;
+    };
 
 export type CreatePaymentRequestDependencies = {
   /** Resolves the authenticated merchant from the server-side session. */
   resolveSession: () => Promise<MerchantSessionState>;
   /** Opens the repository; may throw a configuration error. */
   openRepository: () => PaymentRequestRepository;
+  /**
+   * When present, the request is created only by consuming this active AI
+   * draft authorization. The repository performs both steps atomically.
+   */
+  authorization?: {
+    nonce: string;
+    fingerprint: string;
+  };
 };
 
 /**
@@ -35,7 +57,7 @@ export type CreatePaymentRequestDependencies = {
  */
 export async function createPaymentRequestForSession(
   input: NewPaymentRequestInput,
-  { resolveSession, openRepository }: CreatePaymentRequestDependencies,
+  { resolveSession, openRepository, authorization }: CreatePaymentRequestDependencies,
 ): Promise<CreatePaymentRequestResult> {
   // Authenticate before touching configuration or the database, and answer
   // every failure with the same message: an unauthenticated caller learns
@@ -84,6 +106,41 @@ export async function createPaymentRequestForSession(
 
   // The session address is passed separately from the client payload, so the
   // insert's `merchant_address` can only ever be the authenticated merchant.
+  if (authorization) {
+    const persisted = await repo.createFromAuthorization({
+      nonce: authorization.nonce,
+      fingerprint: authorization.fingerprint,
+      merchantAddress,
+      amountLamports: input.amountLamports,
+      description: input.description,
+      customerName: input.customerName,
+      customerEmail: input.customerEmail,
+    });
+
+    if ("type" in persisted) {
+      return {
+        ok: false,
+        reason: persisted.type === "unauthorized" ? "unauthenticated" : "rejected",
+        error: persisted.message,
+      };
+    }
+
+    if (persisted.outcome === "created" || persisted.outcome === "already_consumed") {
+      return {
+        ok: true,
+        request: persisted.request,
+        authorizationOutcome: persisted.outcome,
+      };
+    }
+
+    return {
+      ok: false,
+      reason: "authorization",
+      error: "The draft authorization is no longer valid.",
+      authorizationOutcome: persisted.outcome,
+    };
+  }
+
   const persisted = await repo.create(input, merchantAddress);
 
   if ("type" in persisted) {
