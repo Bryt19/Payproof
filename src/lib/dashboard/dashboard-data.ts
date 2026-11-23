@@ -47,13 +47,29 @@ export async function getDashboardData(
   }
 
   try {
-    const result = await repo.list(merchant);
+    // Read the full list and an explicit `status = 'pending'` query in
+    // parallel. The pending query guarantees open requests are included even
+    // if a future filter, limit or ordering on the broad list would drop them.
+    const [allResult, pendingResult] = await Promise.all([
+      repo.list(merchant),
+      repo.listPending(merchant),
+    ]);
 
-    if ("type" in result) {
-      return { ok: false, message: result.message };
+    if ("type" in allResult) {
+      return { ok: false, message: allResult.message };
     }
 
-    return { ok: true, data: buildDashboardSummary(result), requests: result };
+    if ("type" in pendingResult) {
+      return { ok: false, message: pendingResult.message };
+    }
+
+    const knownIds = new Set(allResult.map((request) => request.id));
+    const requests = [
+      ...pendingResult.filter((request) => !knownIds.has(request.id)),
+      ...allResult,
+    ];
+
+    return { ok: true, data: buildDashboardSummary(requests), requests };
   } catch (cause) {
     // Never log row data or credentials, only the failure message.
     console.error(

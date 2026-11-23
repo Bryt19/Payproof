@@ -3,6 +3,10 @@ import type {
   PaymentRequestStatus,
 } from "../payment-requests/types";
 import { formatSolExact } from "../solana/units";
+import {
+  isVerifiedPayment,
+  summarizePayments,
+} from "../../../telegram-bot/src/lib/payment-summary";
 
 /**
  * Pure dashboard calculations.
@@ -59,12 +63,7 @@ export const DASHBOARD_ACTIVITY_LIMIT = 8;
  * the signature and verification timestamp. Status `paid` alone is not proof.
  */
 export function isVerifiedPaidPayment(request: PaymentRequest): boolean {
-  return (
-    request.status === "paid" &&
-    request.transactionSignature !== null &&
-    request.payerAddress !== null &&
-    request.verifiedAt !== null
-  );
+  return isVerifiedPayment(request);
 }
 
 function parseLamports(value: string): bigint {
@@ -80,21 +79,21 @@ function parseLamports(value: string): bigint {
 export function buildDashboardSummary(
   requests: readonly PaymentRequest[],
 ): DashboardSummary {
-  let totalReceivedLamports = 0n;
-  let successfulPayments = 0;
-  let pendingPayments = 0;
+  // The same shared aggregation backs Telegram `/summary`, so both surfaces
+  // report identical confirmed, pending, closed and revenue figures.
+  const totals = summarizePayments(requests);
+  const totalReceivedLamports = totals.verifiedLamports;
+  const successfulPayments = totals.verifiedCount;
+  const pendingPayments = totals.pendingCount;
 
-  for (const request of requests) {
-    if (request.status === "pending") {
-      pendingPayments += 1;
-    } else if (request.status === "paid") {
-      successfulPayments += 1;
-
-      if (isVerifiedPaidPayment(request)) {
-        totalReceivedLamports += parseLamports(request.amountLamports);
-      }
-    }
-  }
+  // Pending requests are open work, so they must be visible even when older
+  // than the newest rows. Fill the activity list with pending first, then the
+  // most recent remaining requests; failed/expired/cancelled keep their own
+  // status and are never presented as pending.
+  const activityRequests = [
+    ...requests.filter((request) => request.status === "pending"),
+    ...requests.filter((request) => request.status !== "pending"),
+  ].slice(0, DASHBOARD_ACTIVITY_LIMIT);
 
   return {
     stats: [
@@ -107,9 +106,9 @@ export function buildDashboardSummary(
       },
       {
         id: "successful-payments",
-        label: "Successful payments",
+        label: "Confirmed payments",
         value: successfulPayments.toLocaleString("en-US"),
-        hint: "Requests marked paid",
+        hint: "Independently verified",
       },
       {
         id: "pending-payments",
@@ -124,7 +123,7 @@ export function buildDashboardSummary(
         hint: "All requests",
       },
     ],
-    activity: requests.slice(0, DASHBOARD_ACTIVITY_LIMIT).map((request) => ({
+    activity: activityRequests.map((request) => ({
       id: request.id,
       reference: request.reference,
       description: request.description,
