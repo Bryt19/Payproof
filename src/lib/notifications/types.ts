@@ -1,6 +1,7 @@
 export type NotificationType =
   | "payment_request_created"
   | "payment_received"
+  | "payment_failed"
   | "payment_request_expired"
   | "payment_request_cancelled";
 
@@ -24,6 +25,7 @@ export function isNotificationType(value: unknown): value is NotificationType {
   return (
     value === "payment_request_created" ||
     value === "payment_received" ||
+    value === "payment_failed" ||
     value === "payment_request_expired" ||
     value === "payment_request_cancelled"
   );

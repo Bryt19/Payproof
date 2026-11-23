@@ -1,6 +1,22 @@
 import type { PaymentRequest } from "../payment-requests/types";
+import {
+  isVerifiedPayment,
+  summarizePayments,
+} from "../../../telegram-bot/src/lib/payment-summary";
 
 export type TimeRange = "7d" | "30d" | "90d";
+
+export type BreakdownCategory = "confirmed" | "pending" | "failedCancelled";
+
+/**
+ * Category colors for the dashboard breakdown, keyed by category so a row can
+ * never inherit another row's color by position. Failed/Cancelled is red.
+ */
+export const BREAKDOWN_COLORS: Record<BreakdownCategory, string> = {
+  confirmed: "#14F195",
+  pending: "#fbbf24",
+  failedCancelled: "#EF4444",
+};
 
 type PaymentLike = {
   status: PaymentRequest["status"];
@@ -21,12 +37,7 @@ function asPaymentLike(value: PaymentRequest): PaymentLike {
 }
 
 function isVerifiedPaidPaymentLike(value: PaymentLike): boolean {
-  return (
-    value.status === "paid" &&
-    value.transactionSignature !== null &&
-    value.payerAddress !== null &&
-    value.verifiedAt !== null
-  );
+  return isVerifiedPayment(value);
 }
 
 /**
@@ -83,9 +94,11 @@ function buildVolumeSeriesFromPayables(
 /**
  * Status breakdown for all payment requests in the merchant's account.
  *
- * "Failed/Expired" groups expired and cancelled requests so the chart can show
- * the three statuses the dashboard UI already exposes: Confirmed, Pending,
- * Failed/Expired.
+ * Three categories only: Confirmed (verified paid), Pending, and
+ * Failed/Cancelled (failed + cancelled + expired). Expired requests roll into
+ * Failed/Cancelled instead of getting a fourth category; their individual
+ * status is preserved everywhere else. The total and percentages cover exactly
+ * these three categories so the rows always add up to the displayed total.
  */
 export function buildStatusBreakdownFromRequests(
   requests: readonly PaymentRequest[],
@@ -93,31 +106,26 @@ export function buildStatusBreakdownFromRequests(
   return buildStatusBreakdownFromPayables(requests.map(asPaymentLike));
 }
 
-function buildStatusBreakdownFromPayables(items: readonly PaymentLike[]): StatusBreakdown {
-  let pending = 0;
-  let verified = 0;
-  let failedExpired = 0;
+function buildStatusBreakdownFromPayables(
+  items: readonly PaymentLike[],
+): StatusBreakdown {
+  // Shared with the Telegram summary so the dashboard breakdown and /summary
+  // cannot disagree about confirmed, pending or closed requests.
+  const totals = summarizePayments(items);
+  const confirmed = totals.verifiedCount;
+  const pending = totals.pendingCount;
+  const failedCancelled = totals.failedCount;
 
-  for (const item of items) {
-    if (item.status === "pending") {
-      pending += 1;
-    } else if (isVerifiedPaidPaymentLike(item)) {
-      verified += 1;
-    } else {
-      failedExpired += 1;
-    }
-  }
-
-  const total = pending + verified + failedExpired;
+  const total = confirmed + pending + failedCancelled;
 
   return {
-    confirmed: verified,
+    confirmed,
     pending,
-    failedExpired,
+    failedCancelled,
     total,
-    confirmedPct: safePct(verified, total),
+    confirmedPct: safePct(confirmed, total),
     pendingPct: safePct(pending, total),
-    failedExpiredPct: safePct(failedExpired, total),
+    failedCancelledPct: safePct(failedCancelled, total),
   };
 }
 
@@ -136,11 +144,11 @@ export type VolumePoint = {
 export type StatusBreakdown = {
   confirmed: number;
   pending: number;
-  failedExpired: number;
+  failedCancelled: number;
   total: number;
   confirmedPct: number;
   pendingPct: number;
-  failedExpiredPct: number;
+  failedCancelledPct: number;
 };
 
 function rangeMs(range: TimeRange): number {
@@ -156,15 +164,6 @@ function utcDay(ts: number): number {
   const d = new Date(ts);
   d.setUTCHours(0, 0, 0, 0);
   return d.getTime();
-}
-
-function isVerifiedPaid(request: PaymentRequest): boolean {
-  return (
-    request.status === "paid" &&
-    request.transactionSignature !== null &&
-    request.payerAddress !== null &&
-    request.verifiedAt !== null
-  );
 }
 
 function parseLamports(value: string): bigint {

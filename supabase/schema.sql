@@ -197,6 +197,75 @@ create policy "no public notification deletes"
 -- ---------------------------------------------------------------------------
 -- Merchant authentication
 -- ---------------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- AI payment-draft authorization registry
+-- ---------------------------------------------------------------------------
+-- Server-only, short-lived authorizations for AI-prepared payment drafts.
+-- Nonces are consumed atomically with payment-request creation by the RPCs in
+-- 20261122120000_ai_payment_draft_authorizations.sql.
+
+create table if not exists ai_payment_draft_authorizations (
+  nonce                 text primary key,
+  merchant_wallet       text not null,
+  status                text not null default 'active'
+    check (status in ('active', 'revoked', 'processing', 'consumed')),
+  draft_fingerprint     text not null
+    check (draft_fingerprint ~ '^[0-9a-f]{64}$'),
+  expires_at            timestamptz not null,
+  created_at            timestamptz not null default now(),
+  consumed_at           timestamptz,
+  payment_request_id    text references payment_requests(id) on delete restrict,
+  processing_started_at timestamptz,
+  constraint ai_draft_auth_nonce_format
+    check (nonce ~ '^[a-f0-9]{32,64}$'),
+  constraint ai_draft_auth_wallet_not_empty
+    check (length(btrim(merchant_wallet)) > 0),
+  constraint ai_draft_auth_expiry_valid
+    check (expires_at > created_at),
+  constraint ai_draft_auth_consumed_consistency
+    check (
+      (status in ('active', 'revoked')
+        and consumed_at is null
+        and payment_request_id is null
+        and processing_started_at is null)
+      or (status = 'processing'
+        and consumed_at is null
+        and payment_request_id is null
+        and processing_started_at is not null)
+      or (status = 'consumed'
+        and consumed_at is not null
+        and payment_request_id is not null
+        and processing_started_at is null)
+    )
+);
+
+create unique index if not exists ai_draft_auth_request_unique
+  on ai_payment_draft_authorizations (payment_request_id)
+  where payment_request_id is not null;
+
+create index if not exists ai_draft_auth_merchant_status
+  on ai_payment_draft_authorizations (merchant_wallet, status, expires_at desc);
+
+create index if not exists ai_draft_auth_active_expiry
+  on ai_payment_draft_authorizations (expires_at)
+  where status = 'active';
+
+alter table ai_payment_draft_authorizations enable row level security;
+
+revoke all on table ai_payment_draft_authorizations from public;
+revoke all on table ai_payment_draft_authorizations from anon;
+revoke all on table ai_payment_draft_authorizations from authenticated;
+
+grant select, insert, update, delete
+  on table ai_payment_draft_authorizations
+  to service_role;
+
+create policy "no client access to ai draft authorizations"
+  on ai_payment_draft_authorizations for all
+  to anon, authenticated
+  using (false)
+  with check (false);
+
 -- Short-lived wallet-signature auth challenges and the sessions they produce.
 -- Mirrors supabase/migrations/20261115150000_merchant_auth_final.sql. Sessions
 -- store only the SHA-256 hex digest of the cookie token, never the token itself.

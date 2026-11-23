@@ -66,11 +66,14 @@ export type TelegramMessagePayload = {
   transactionSignature?: string;
   /** Short human description of the payment request. */
   description?: string;
+  /** Payment status for lifecycle events, e.g. "Failed". */
+  status?: string;
 };
 
 const EVENT_HEADINGS: Record<NotificationType, string> = {
   payment_request_created: "New payment request",
   payment_received: "Payment verified",
+  payment_failed: "Payment failed",
   payment_request_expired: "Payment request expired",
   payment_request_cancelled: "Payment request cancelled",
 };
@@ -78,6 +81,7 @@ const EVENT_HEADINGS: Record<NotificationType, string> = {
 const EVENT_FOOTERS: Record<NotificationType, string> = {
   payment_request_created: "Share the payment request with your customer.",
   payment_received: "Verified on Solana by PayProof. No action is required.",
+  payment_failed: "This payment was not completed. No SOL was moved.",
   payment_request_expired: "No verified payment was received before expiry.",
   payment_request_cancelled: "This request can no longer be paid.",
 };
@@ -126,6 +130,10 @@ export function buildTelegramNotificationText(
 
   if (payload.description !== undefined && payload.description.trim().length > 0) {
     lines.push(`*Description:* ${escapeMarkdownV2(payload.description.trim())}`);
+  }
+
+  if (payload.status !== undefined && payload.status.trim().length > 0) {
+    lines.push(`*Status:* ${escapeMarkdownV2(payload.status.trim())}`);
   }
 
   if (payload.transactionSignature !== undefined) {
@@ -397,5 +405,80 @@ export async function sendTelegramNotificationWithRetry(input: {
     permanent: false,
     deliveryUncertain: lastUncertain,
   };
+}
+
+/**
+ * Sends an explicit test message to a linked chat.
+ *
+ * Kept separate from the notification pipeline on purpose: a test send never
+ * creates an in-app notification or a delivery row, and it is never triggered
+ * by enabling a preference.
+ */
+export async function sendTelegramTestMessage(input: {
+  botToken: string;
+  chatId: string | number;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const fetchImpl = input.fetchImpl ?? globalThis.fetch;
+
+  if (typeof fetchImpl !== "function") {
+    return { ok: false, message: "Outbound HTTP is not available in this runtime." };
+  }
+
+  const text = [
+    "*PayProof test message*",
+    "",
+    escapeMarkdownV2("Telegram delivery is working for this chat."),
+    escapeMarkdownV2("No payment was verified and no receipt was issued."),
+  ].join("\n");
+
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    input.timeoutMs ?? TELEGRAM_REQUEST_TIMEOUT_MS,
+  );
+
+  try {
+    const response = await fetchImpl(
+      `${TELEGRAM_API_BASE}/bot${input.botToken}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          chat_id: input.chatId,
+          text,
+          parse_mode: "MarkdownV2",
+          disable_web_page_preview: true,
+        }),
+      },
+    );
+
+    if (response.ok) {
+      return { ok: true };
+    }
+
+    let description = `Telegram rejected the message (HTTP ${response.status}).`;
+
+    try {
+      const body = (await response.json()) as { description?: unknown };
+      if (typeof body.description === "string" && body.description.length > 0) {
+        description = body.description.slice(0, 200);
+      }
+    } catch {
+      // Keep the status-based message.
+    }
+
+    return { ok: false, message: description };
+  } catch (cause) {
+    const message =
+      cause instanceof Error && /abort/i.test(cause.message)
+        ? "Telegram did not answer in time."
+        : "Could not reach Telegram.";
+    return { ok: false, message };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 

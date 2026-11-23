@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { createSupabaseClient } from "@/lib/payment-requests/supabase";
 import {
+  AI_DRAFT_IP_RULES,
+  AI_DRAFT_UNKNOWN_IP_RULES,
+  AI_DRAFT_WALLET_RULES,
+  AI_DRAFT_WRITE_IP_RULES,
+  AI_DRAFT_WRITE_UNKNOWN_IP_RULES,
+  AI_DRAFT_WRITE_WALLET_RULES,
   CHALLENGE_GLOBAL_RULES,
   CHALLENGE_IP_RULES,
   CHALLENGE_UNKNOWN_IP_RULES,
@@ -139,8 +145,15 @@ async function applyRules(
   return { ok: true };
 }
 
+export type RateLimitAction =
+  | "challenge"
+  | "verify"
+  | "telegram-link-token"
+  | "ai-payment-draft"
+  | "ai-payment-draft-write";
+
 export async function checkClientRateLimit(
-  action: "challenge" | "verify" | "telegram-link-token",
+  action: RateLimitAction,
   headers: Headers | { get(name: string): string | null },
   store?: RateLimitStore,
 ): Promise<RateLimitOutcome> {
@@ -200,6 +213,34 @@ export async function checkClientRateLimit(
       }
     }
 
+    if (action === "ai-payment-draft") {
+      if (clientIp) {
+        return await applyRules(AI_DRAFT_IP_RULES, `ip:${clientIp}`, activeStore);
+      } else {
+        return await applyRules(
+          AI_DRAFT_UNKNOWN_IP_RULES,
+          UNKNOWN_CLIENT_KEY,
+          activeStore,
+        );
+      }
+    }
+
+    if (action === "ai-payment-draft-write") {
+      if (clientIp) {
+        return await applyRules(
+          AI_DRAFT_WRITE_IP_RULES,
+          `ip:${clientIp}`,
+          activeStore,
+        );
+      } else {
+        return await applyRules(
+          AI_DRAFT_WRITE_UNKNOWN_IP_RULES,
+          UNKNOWN_CLIENT_KEY,
+          activeStore,
+        );
+      }
+    }
+
     return { ok: true };
   } catch {
     return { ok: false, kind: "unavailable" };
@@ -207,7 +248,7 @@ export async function checkClientRateLimit(
 }
 
 export async function checkWalletRateLimit(
-  action: "challenge" | "verify" | "telegram-link-token",
+  action: RateLimitAction,
   walletAddress: string,
   store?: RateLimitStore,
 ): Promise<RateLimitOutcome> {
@@ -221,6 +262,14 @@ export async function checkWalletRateLimit(
 
     if (action === "verify") {
       return await applyRules(VERIFY_WALLET_RULES, identity, activeStore);
+    }
+
+    if (action === "ai-payment-draft") {
+      return await applyRules(AI_DRAFT_WALLET_RULES, identity, activeStore);
+    }
+
+    if (action === "ai-payment-draft-write") {
+      return await applyRules(AI_DRAFT_WRITE_WALLET_RULES, identity, activeStore);
     }
 
     return { ok: true };
