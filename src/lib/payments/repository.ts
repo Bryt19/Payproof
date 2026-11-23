@@ -4,7 +4,11 @@ import {
   mapPaymentRequestRow,
   SUPABASE_TABLE,
 } from "../payment-requests/supabase";
-import type { PaymentRequest } from "../payment-requests/types";
+import type {
+  PaymentRequest,
+  PaymentRequestStatus,
+} from "../payment-requests/types";
+import { expireStalePaymentRequests } from "../payment-requests/expiration";
 
 /**
  * Server-side data access for payments.
@@ -25,6 +29,19 @@ export type PaymentFilterStatus =
   | "expired"
   | "cancelled"
   | "failed";
+
+/**
+ * Database statuses for a UI bucket. `failed` includes real failed requests as
+ * well as expired and cancelled ones; omitting `failed` here was the reason
+ * attempt-limited requests vanished from the payments view.
+ */
+export function statusesForPaymentFilter(
+  status: PaymentFilterStatus,
+): readonly PaymentRequestStatus[] | null {
+  if (status === "all") return null;
+  if (status === "failed") return ["failed", "expired", "cancelled"];
+  return [status];
+}
 
 export type PaymentSortField = "created_at" | "amount_lamports" | "reference";
 export type PaymentSortDirection = "asc" | "desc";
@@ -70,6 +87,12 @@ export async function fetchPayments(
   }
 
   try {
+    // Persist expiry before any status filter can hide a stale pending row.
+    await expireStalePaymentRequests({
+      supabase,
+      merchantAddress: params.merchantAddress ?? null,
+    });
+
     // Build the base query
     let query = supabase.from(SUPABASE_TABLE).select("*", { count: "exact" });
 
@@ -81,10 +104,9 @@ export async function fetchPayments(
     }
 
     // Apply status filter (default: all)
-    if (params.status === "failed") {
-      query = query.in("status", ["expired", "cancelled"]);
-    } else if (params.status && params.status !== "all") {
-      query = query.eq("status", params.status);
+    const statuses = statusesForPaymentFilter(params.status ?? "all");
+    if (statuses) {
+      query = query.in("status", statuses);
     }
 
     // Apply date filters
@@ -95,11 +117,33 @@ export async function fetchPayments(
       query = query.lte("created_at", params.endDate);
     }
 
-    // Apply search filter (reference or wallet address)
+    // Apply search filter (reference, description, customer or wallet address).
     if (params.search && params.search.trim().length > 0) {
-      const searchTerm = params.search.trim();
-      // Search by reference or wallet addresses
-      query = query.or(`reference.ilike.%${searchTerm},merchant_address.ilike.%${searchTerm},payer_address.ilike.%${searchTerm}`);
+      // Commas, parentheses and quotes are PostgREST filter syntax and would
+      // split or break the `or` expression, so collapse them to spaces.
+      const searchTerm = params.search
+        .trim()
+        .replace(/[,()*"]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (searchTerm.length > 0) {
+        // Treat user-entered % and _ literally instead of as wildcards.
+        const pattern = searchTerm.replace(/[\\%_]/g, "\\$&");
+        query = query.or(
+          [
+            "reference",
+            "description",
+            "customer_name",
+            "customer_email",
+            "merchant_address",
+            "payer_address",
+            "transaction_signature",
+          ]
+            .map((column) => `${column}.ilike.%${pattern}%`)
+            .join(","),
+        );
+      }
     }
 
     // Apply sorting

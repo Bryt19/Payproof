@@ -1,5 +1,6 @@
 import { formatSolExact } from "../solana/units";
 import type { PaymentRequest } from "../payment-requests/types";
+import { summarizePayments } from "../../../telegram-bot/src/lib/payment-summary";
 
 /**
  * Pure payment statistics calculations.
@@ -31,50 +32,15 @@ export type PaymentsSummary = {
   totalCount: number;
 };
 
-/**
- * A payment only counts as verified revenue when the server-side verifier
- * recorded the signature, payer address, and verification timestamp.
- */
-function isVerifiedPayment(request: PaymentRequest): boolean {
-  return (
-    request.status === "paid" &&
-    request.transactionSignature !== null &&
-    request.payerAddress !== null &&
-    request.verifiedAt !== null
-  );
-}
-
-function parseLamports(value: string): bigint {
-  const trimmed = value.trim();
-
-  if (!/^\d+$/.test(trimmed)) {
-    throw new Error("A stored payment amount is not a whole number of lamports.");
-  }
-
-  return BigInt(trimmed);
-}
-
 export function buildPaymentsSummary(
   requests: readonly PaymentRequest[],
 ): PaymentsSummary {
-  let totalVerifiedLamports = 0n;
-  let successfulCount = 0;
-  let pendingCount = 0;
-  let failedCount = 0;
-
-  for (const request of requests) {
-    if (request.status === "paid") {
-      successfulCount += 1;
-
-      if (isVerifiedPayment(request)) {
-        totalVerifiedLamports += parseLamports(request.amountLamports);
-      }
-    } else if (request.status === "pending") {
-      pendingCount += 1;
-    } else if (request.status === "expired" || request.status === "cancelled") {
-      failedCount += 1;
-    }
-  }
+  // Same aggregation as the dashboard, payments breakdown and Telegram
+  // `/summary`, so failed requests are never reported as pending.
+  const totals = summarizePayments(requests);
+  const successfulCount = totals.verifiedCount;
+  const pendingCount = totals.pendingCount;
+  const failedCount = totals.failedCount;
 
   return {
     stats: [
@@ -87,7 +53,7 @@ export function buildPaymentsSummary(
       {
         id: "total-sol-received",
         label: "Total SOL received",
-        value: formatSolExact(totalVerifiedLamports),
+        value: formatSolExact(totals.verifiedLamports),
         unit: "SOL",
         hint: "Independently verified revenue",
       },
@@ -107,7 +73,7 @@ export function buildPaymentsSummary(
         id: "failed-transactions",
         label: "Failed transactions",
         value: failedCount.toLocaleString("en-US"),
-        hint: "Expired or cancelled",
+        hint: "Failed, cancelled or expired",
       },
     ],
     totalCount: requests.length,
