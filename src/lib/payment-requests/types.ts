@@ -12,7 +12,12 @@
  * is never trustworthy on its own.
  */
 
-export type PaymentRequestStatus = "pending" | "paid" | "expired" | "cancelled";
+export type PaymentRequestStatus =
+  | "pending"
+  | "paid"
+  | "expired"
+  | "cancelled"
+  | "failed";
 
 export type PaymentRequest = {
   /** Populated server-side from the checkout path. Frontend never writes it. */

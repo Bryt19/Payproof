@@ -12,6 +12,7 @@ import {
 } from "./validation";
 import { formatSolExact } from "@/lib/solana/units";
 import { createPaymentRequestCreatedNotification } from "../notifications/server";
+import { expireStalePaymentRequests } from "./expiration";
 import type { NewPaymentRequestInput, PaymentRequest } from "./types";
 
 export type RepositoryErrorCode =
@@ -31,6 +32,34 @@ export type VerifiedPaymentInput = {
   verifiedAt: string;
 };
 
+export type AuthorizedCreationOutcome =
+  | "created"
+  | "already_consumed"
+  | "unknown"
+  | "wrong_merchant"
+  | "revoked"
+  | "processing"
+  | "expired"
+  | "fingerprint_mismatch"
+  | "invalid_request";
+
+export type AuthorizedCreationInput = {
+  nonce: string;
+  merchantAddress: string;
+  amountLamports: string;
+  description: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  fingerprint: string;
+};
+
+export type AuthorizedCreationResult =
+  | {
+      outcome: "created" | "already_consumed";
+      request: PaymentRequest;
+    }
+  | { outcome: Exclude<AuthorizedCreationOutcome, "created" | "already_consumed"> };
+
 export interface PaymentRequestRepository {
   /**
    * Newest first. Returns an error result when the database is unavailable.
@@ -39,6 +68,14 @@ export interface PaymentRequestRepository {
    * returned (client-scoped; not verified server-side ownership).
    */
   list(merchantAddress?: string | null): Promise<readonly PaymentRequest[] | RepositoryError>;
+  /**
+   * Pending requests only, newest first. This is an explicit
+   * `status = 'pending'` query so pending rows cannot be lost to any filter,
+   * limit or ordering applied to the broader list.
+   */
+  listPending(
+    merchantAddress?: string | null,
+  ): Promise<readonly PaymentRequest[] | RepositoryError>;
   /** Returns `null` for an unknown reference, or an error result on failure. */
   getByReference(
     reference: string,
@@ -52,6 +89,14 @@ export interface PaymentRequestRepository {
     input: NewPaymentRequestInput,
     merchantAddress: string | null,
   ): Promise<PaymentRequest | RepositoryError>;
+  /**
+   * Atomically consumes an AI draft authorization and creates the payment
+   * request in one database transaction. A consumed authorization returns the
+   * original request instead of creating a duplicate.
+   */
+  createFromAuthorization(
+    input: AuthorizedCreationInput,
+  ): Promise<AuthorizedCreationResult | RepositoryError>;
   /**
    * Atomically marks a still-pending request as paid.
    *
@@ -218,6 +263,9 @@ export function createSupabaseRepository(): PaymentRequestRepository {
 
   return {
     async list(merchantAddress?: string | null) {
+      // Persist expiry for stale pending rows before listing them.
+      await expireStalePaymentRequests({ supabase, merchantAddress });
+
       let query = supabase
         .from(SUPABASE_TABLE)
         .select("*")
@@ -241,7 +289,36 @@ export function createSupabaseRepository(): PaymentRequestRepository {
       return (data ?? []).map(mapPaymentRequestRow);
     },
 
+    async listPending(merchantAddress?: string | null) {
+      let query = supabase
+        .from(SUPABASE_TABLE)
+        .select("*")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+
+      const merchant =
+        typeof merchantAddress === "string" ? merchantAddress.trim() : "";
+      if (merchant.length > 0) {
+        query = query.eq("merchant_address", merchant);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        logRepositoryFailure("select-pending", error);
+        return {
+          type: "unavailable",
+          message: "Could not read pending payment requests.",
+        };
+      }
+
+      return (data ?? []).map(mapPaymentRequestRow);
+    },
+
     async getByReference(reference) {
+      // Expiry is deliberately NOT applied here: verification also reads
+      // through this method, and a payment made before expiry must still be
+      // verifiable afterwards. Checkout performs its own expiry pass.
       const { data, error } = await supabase
         .from(SUPABASE_TABLE)
         .select("*")
@@ -340,10 +417,132 @@ export function createSupabaseRepository(): PaymentRequestRepository {
       };
     },
 
+    async createFromAuthorization(input) {
+      const validated = validateForCreate({
+        amountLamports: input.amountLamports,
+        description: input.description,
+        customerName: input.customerName,
+        customerEmail: input.customerEmail,
+      });
+
+      if ("type" in validated) {
+        return validated;
+      }
+
+      // A generated reference/id collision is safe to retry: the database
+      // transaction rolls back, leaving the authorization active.
+      for (let attempt = 1; attempt <= MAX_CREATE_ATTEMPTS; attempt += 1) {
+        const requestId = generatePaymentRequestId();
+        const reference = generatePaymentReference();
+
+        const { data, error } = await supabase.rpc(
+          "execute_ai_payment_draft_authorization",
+          {
+            p_nonce: input.nonce,
+            p_merchant_wallet: input.merchantAddress,
+            p_request_id: requestId,
+            p_reference: reference,
+            p_amount_lamports: validated.amountLamports,
+            p_description: validated.description,
+            p_customer_name: validated.customerName,
+            p_customer_email: validated.customerEmail,
+            p_draft_fingerprint: input.fingerprint,
+          },
+        );
+
+        if (error) {
+          logRepositoryFailure("authorized-insert", error);
+
+          if (error.code === "23505" && attempt < MAX_CREATE_ATTEMPTS) {
+            continue;
+          }
+
+          return {
+            type: "unavailable",
+            message: "Could not create the payment request. Please try again.",
+          };
+        }
+
+        const payload =
+          typeof data === "string"
+            ? (JSON.parse(data) as Record<string, unknown>)
+            : (data as Record<string, unknown> | null);
+
+        const outcome = payload?.outcome;
+
+        if (typeof outcome !== "string") {
+          return {
+            type: "unavailable",
+            message: "The payment request could not be created.",
+          };
+        }
+
+        if (outcome === "created" || outcome === "already_consumed") {
+          const row = payload?.request;
+
+          if (!row || typeof row !== "object") {
+            return {
+              type: "unavailable",
+              message: "The payment request was created but could not be read back.",
+            };
+          }
+
+          let created: PaymentRequest;
+
+          try {
+            created = mapPaymentRequestRow(
+              row as Parameters<typeof mapPaymentRequestRow>[0],
+            );
+          } catch {
+            return {
+              type: "unavailable",
+              message:
+                "The payment request was created but could not be read back.",
+            };
+          }
+
+          if (outcome === "created") {
+            try {
+              await createPaymentRequestCreatedNotification(created);
+            } catch {
+              // Notification delivery is best-effort and must never turn a
+              // committed payment request into an error response.
+            }
+          }
+
+          return { outcome, request: created };
+        }
+
+        if (
+          outcome === "unknown" ||
+          outcome === "wrong_merchant" ||
+          outcome === "revoked" ||
+          outcome === "processing" ||
+          outcome === "expired" ||
+          outcome === "fingerprint_mismatch" ||
+          outcome === "invalid_request"
+        ) {
+          return { outcome };
+        }
+
+        return {
+          type: "unavailable",
+          message: "The payment request could not be created.",
+        };
+      }
+
+      return {
+        type: "unavailable",
+        message: "Could not create the payment request. Please try again.",
+      };
+    },
+
     async markVerified(reference, input) {
       // Conditional update: status and signature must still be untouched. The
       // database serializes concurrent updates, so only one verification can
       // transition this row to paid.
+      // `failed` requests are recoverable: a verified on-chain payment moves
+      // them to paid. Expired, cancelled and already-paid rows never match.
       const { data, error } = await supabase
         .from(SUPABASE_TABLE)
         .update({
@@ -353,7 +552,7 @@ export function createSupabaseRepository(): PaymentRequestRepository {
           verified_at: input.verifiedAt,
         })
         .eq("reference", reference)
-        .eq("status", "pending")
+        .in("status", ["pending", "failed"])
         .is("transaction_signature", null)
         .select("id")
         .maybeSingle();

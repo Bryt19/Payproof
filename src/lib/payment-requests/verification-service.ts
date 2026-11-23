@@ -191,7 +191,12 @@ export function createPaymentVerificationService({
         );
       }
 
-      if (request.status !== "pending") {
+      // `failed` stays recoverable: after three wallet rejections the request
+      // is closed for new attempts by default, but the customer may retry and
+      // a legitimate on-chain payment can still recover it. Only server-side
+      // verification can move a failed request to paid. Expired, cancelled and
+      // paid requests remain closed.
+      if (request.status !== "pending" && request.status !== "failed") {
         return rejected(
           request.reference,
           signature,
