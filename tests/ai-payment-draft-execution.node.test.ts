@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   createDraftToken,
   verifyDraftToken,
+  DRAFT_TOKEN_PREFIX,
+  MAX_DRAFT_TOKEN_LENGTH,
 } from "../src/lib/ai/draft-token.ts";
 import {
   draftAuthorizationFingerprint,
@@ -817,4 +819,114 @@ test("generated nonces are 32 lowercase hex characters", () => {
   const nonce = generateDraftNonce();
   assert.match(nonce, /^[0-9a-f]{32}$/);
   assert.notEqual(nonce, generateDraftNonce());
+});
+
+// ---------------------------------------------------------------------------
+// Registry ownership and token size
+// ---------------------------------------------------------------------------
+
+test("a registry-level wrong_merchant outcome is rejected with 403", async () => {
+  const { handler } = executeHandler({
+    createAuthorizedRequest: async () => ({
+      ok: false,
+      reason: "authorization",
+      authorizationOutcome: "wrong_merchant",
+      error: "wrong merchant",
+    }),
+  });
+
+  const response = await handler(request({ draftToken: tokenFor().token }));
+  const body = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.equal(body.code, "wrong_merchant");
+  assert.equal(body.request, undefined);
+  assert.equal(body.checkoutUrl, undefined);
+  assert.equal(body.alreadyCreated, undefined);
+});
+
+test("an oversized draft token is rejected at the endpoint before the registry", async () => {
+  const { handler, state } = executeHandler();
+
+  const oversized = `${DRAFT_TOKEN_PREFIX}.${"a".repeat(
+    MAX_DRAFT_TOKEN_LENGTH,
+  )}.signature`;
+  assert.ok(oversized.length > MAX_DRAFT_TOKEN_LENGTH);
+
+  const response = await handler(request({ draftToken: oversized }));
+  const body = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(body.code, "invalid_authorization");
+  assert.equal(state.executeCalls, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Concurrency
+// ---------------------------------------------------------------------------
+
+/**
+ * Handler-level concurrency: a promise-chain mutex plays the part of the RPC's
+ * `SELECT ... FOR UPDATE`, so overlapping handler calls are serialised exactly
+ * as the single SQL transaction would serialise them.
+ *
+ * This proves the handlers map interleaved outcomes without duplication. It does
+ * NOT prove Postgres row locking or transaction isolation: no database runs in
+ * this suite, and that guarantee remains covered only structurally by the
+ * migration assertions above.
+ */
+function lockedRegistry() {
+  let tail: Promise<unknown> = Promise.resolve();
+
+  return <T>(work: () => Promise<T>): Promise<T> => {
+    const run = tail.then(work, work);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+}
+
+test("ten simultaneous approvals create exactly one payment request", async () => {
+  const withLock = lockedRegistry();
+  let stored: PaymentRequest | null = null;
+  let inserts = 0;
+
+  const { handler } = executeHandler({
+    createAuthorizedRequest: () =>
+      withLock(async () => {
+        if (stored) {
+          return {
+            ok: true,
+            request: stored,
+            authorizationOutcome: "already_consumed",
+          } as const;
+        }
+
+        inserts += 1;
+        stored = createdRequest();
+
+        return {
+          ok: true,
+          request: stored,
+          authorizationOutcome: "created",
+        } as const;
+      }),
+  });
+
+  const draftToken = tokenFor().token;
+  const responses = await Promise.all(
+    Array.from({ length: 10 }, () => handler(request({ draftToken }))),
+  );
+  const bodies = await Promise.all(responses.map((response) => response.json()));
+
+  const statuses = responses.map((response) => response.status).sort();
+  const created = bodies.filter((body) => body.status === "created");
+  const replays = bodies.filter((body) => body.status === "already_created");
+
+  assert.equal(statuses.filter((status) => status === 201).length, 1);
+  assert.equal(statuses.filter((status) => status === 200).length, 9);
+  assert.equal(inserts, 1);
+  assert.equal(created.length, 1);
+  assert.equal(replays.length, 9);
+  assert.ok(replays.every((body) => body.alreadyCreated === true));
+  assert.equal(new Set(bodies.map((body) => body.request.id)).size, 1);
 });
