@@ -140,10 +140,9 @@ export default function PaymentsView() {
           }
         } else if (payment.status === "pending") {
           pendingCount += 1;
-        } else if (
-          payment.status === "expired" ||
-          payment.status === "cancelled"
-        ) {
+        } else {
+          // failed, expired and cancelled are all closed without a verified
+          // payment; none of them may count as successful or pending.
           failedCount += 1;
         }
       }
@@ -190,8 +189,17 @@ export default function PaymentsView() {
     setStatusFilter("all");
   };
 
+  // Pending and failed cards must reflect every matching record, not just the
+  // rows on the current page/filter. The per-bucket totals come from the same
+  // Supabase queries with `count: exact` (limit 1) and match the database.
   const summary =
-    loadState.status === "loaded" ? loadState.summary : EMPTY_SUMMARY;
+    loadState.status === "loaded"
+      ? {
+          ...loadState.summary,
+          pendingCount: counts?.pending ?? loadState.summary.pendingCount,
+          failedCount: counts?.failed ?? loadState.summary.failedCount,
+        }
+      : EMPTY_SUMMARY;
 
   return (
     <DashboardShell
@@ -218,14 +226,6 @@ export default function PaymentsView() {
           </div>
         </div>
 
-        {/* Verification notice */}
-        <div className="flex items-start gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-xs text-white/70">
-          <span className="mt-1 size-1.5 shrink-0 rounded-full bg-[#9945FF]" />
-          <span>
-            Paid amounts only count after independent on-chain verification.
-            Pending, expired and cancelled requests are excluded from totals.
-          </span>
-        </div>
 
         {/* Error state */}
         {loadState.status === "error" && (
@@ -300,6 +300,7 @@ export default function PaymentsView() {
         <TransactionDetailsModal
           payment={selectedPayment}
           onClose={() => setSelectedPayment(null)}
+          onCancelled={() => void fetchData()}
         />
       )}
     </DashboardShell>

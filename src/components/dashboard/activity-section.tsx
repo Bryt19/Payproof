@@ -35,6 +35,12 @@ const statusStyles: Record<
     text: "rgba(255,255,255,0.4)",
     dot: "#737373",
   },
+  failed: {
+    label: "Failed",
+    bg: "rgba(239,68,68,0.08)",
+    text: "#ef4444",
+    dot: "#ef4444",
+  },
 };
 
 const DEFAULT_STATUS_STYLE = {
@@ -151,10 +157,10 @@ export default function ActivitySection({
   return (
     <section
       aria-labelledby="activity-heading"
-      className="flex flex-col overflow-hidden rounded-2xl border border-line"
+      className="flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border border-line"
       style={{ background: "#0E0E12" }}
     >
-      <header className="flex shrink-0 flex-col gap-3 border-b border-line px-5 py-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+      <header className="flex shrink-0 flex-col gap-2.5 border-b border-line px-5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between xl:py-2.5 xl:px-4.5">
         <div>
           <h2
             id="activity-heading"
@@ -218,7 +224,7 @@ export default function ActivitySection({
       ) : (
         <>
           {/* Stacked rows below md with internal scroll container */}
-          <div className="max-h-[280px] overflow-y-auto overscroll-contain md:hidden">
+          <div className="activity-scroll max-h-[280px] overflow-y-auto overscroll-contain md:hidden">
             <ul className="divide-y divide-line">
             {visibleRows.length === 0 ? (
               <li className="px-4 py-10 text-center">
@@ -303,7 +309,7 @@ export default function ActivitySection({
             </ul>
           </div>
 
-          <div className="hidden max-h-[260px] overflow-x-auto overflow-y-auto overscroll-contain md:block xl:max-h-[300px]">
+          <div className="activity-scroll hidden overflow-x-auto overflow-y-auto overscroll-contain md:block md:max-h-[250px] lg:max-h-[250px] xl:max-h-[260px]">
           <table className="w-full text-left text-sm">
             <caption className="sr-only">
               Recent Payproof payment requests, including amount, creation date,
@@ -315,22 +321,22 @@ export default function ActivitySection({
                 className="text-[11px] uppercase tracking-wider"
                 style={{ color: "rgba(255,255,255,0.35)" }}
               >
-                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-2.5 font-medium xl:px-4 xl:py-2">
                   Description
                 </th>
-                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-2.5 font-medium xl:px-4 xl:py-2">
                   Customer
                 </th>
-                <th scope="col" className="bg-[#0E0E12] px-5 py-3 text-right font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-2.5 text-right font-medium xl:px-4 xl:py-2">
                   Amount
                 </th>
-                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-2.5 font-medium xl:px-4 xl:py-2">
                   Created
                 </th>
-                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-2.5 font-medium xl:px-4 xl:py-2">
                   Status
                 </th>
-                <th scope="col" className="bg-[#0E0E12] px-5 py-3 font-medium">
+                <th scope="col" className="bg-[#0E0E12] px-5 py-2.5 font-medium xl:px-4 xl:py-2">
                   Proof
                 </th>
               </tr>
@@ -339,7 +345,7 @@ export default function ActivitySection({
             <tbody className="divide-y divide-line">
               {visibleRows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-5 py-10 text-center">
+                  <td colSpan={6} className="px-5 py-8 text-center">
                     <p
                       className="text-sm"
                       style={{ color: "rgba(255,255,255,0.6)" }}
@@ -363,7 +369,7 @@ export default function ActivitySection({
                       key={row.id}
                       className="transition-colors duration-100 hover:bg-white/[0.02]"
                     >
-                      <td className="max-w-xs px-5 py-3.5">
+                      <td className="max-w-xs px-5 py-3 xl:px-4 xl:py-2">
                         <p className="break-words text-neutral-100">
                           {row.description}
                         </p>
@@ -374,19 +380,19 @@ export default function ActivitySection({
                           {row.reference}
                         </p>
                       </td>
-                      <td className="whitespace-nowrap px-5 py-3.5 text-neutral-200">
+                      <td className="whitespace-nowrap px-5 py-3 text-neutral-200 xl:px-4 xl:py-2">
                         {row.customerName ?? "—"}
                       </td>
-                      <td className="whitespace-nowrap px-5 py-3.5 text-right font-mono text-xs tabular-nums text-neutral-200">
+                      <td className="whitespace-nowrap px-5 py-3 text-right font-mono text-xs tabular-nums text-neutral-200 xl:px-4 xl:py-2">
                         {row.amountSol} SOL
                       </td>
                       <td
-                        className="whitespace-nowrap px-5 py-3.5 text-xs"
+                        className="whitespace-nowrap px-5 py-3 text-xs xl:px-4 xl:py-2"
                         style={{ color: "rgba(255,255,255,0.4)" }}
                       >
                         {formatCreatedAt(row.createdAt)}
                       </td>
-                      <td className="whitespace-nowrap px-5 py-3.5">
+                      <td className="whitespace-nowrap px-5 py-3 xl:px-4 xl:py-2">
                         <span
                           className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium"
                           style={{
@@ -403,7 +409,7 @@ export default function ActivitySection({
                           {status.label}
                         </span>
                       </td>
-                      <td className="whitespace-nowrap px-5 py-3.5">
+                      <td className="whitespace-nowrap px-5 py-3 xl:px-4 xl:py-2">
                         {row.status === "paid" && row.transactionSignature ? (
                           <a
                             href={getDevnetTransactionExplorerUrl(
@@ -440,13 +446,18 @@ export default function ActivitySection({
         </>
       )}
 
-      {isSearching && !noMatches && (
+      {!noMatches && visibleRows.length > 0 && (
         <p
-          className="shrink-0 border-t border-line px-5 py-2.5 text-[11px]"
+          className="shrink-0 border-t border-line bg-[#0E0E12] px-5 py-2.5 text-[11px]"
           style={{ color: "rgba(255,255,255,0.35)" }}
         >
-          {visibleRows.length} of {rows.length} request
-          {rows.length === 1 ? "" : "s"} match “{activeQuery.trim()}”
+          {isSearching
+            ? `${visibleRows.length} of ${rows.length} request${
+                rows.length === 1 ? "" : "s"
+              } match “${activeQuery.trim()}”`
+            : `Showing ${visibleRows.length} request${
+                visibleRows.length === 1 ? "" : "s"
+              }`}
         </p>
       )}
     </section>

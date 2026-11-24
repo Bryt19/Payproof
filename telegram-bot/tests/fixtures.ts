@@ -56,6 +56,7 @@ export function fakeData(overrides: Partial<PayProofData> = {}): PayProofData {
       },
     }),
     getRecentVerified: async () => ({ ok: true, data: [VERIFIED_PAYMENT] }),
+    getRecentTransactions: async () => ({ ok: true, data: [VERIFIED_PAYMENT] }),
     getPending: async () => ({ ok: true, data: [PENDING_PAYMENT] }),
     getVerifiedReceipt: async (_merchant, reference) => ({
       ok: true,

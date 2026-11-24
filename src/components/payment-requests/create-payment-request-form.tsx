@@ -35,8 +35,9 @@ const FIELD_ORDER: readonly PaymentRequestField[] = [
   "customerEmail",
 ];
 
+// 16px on phones keeps iOS Safari from zooming when a field gets focus.
 const inputClassName =
-  "mt-1.5 min-h-11 w-full rounded-xl border border-white/[0.1] bg-black/40 px-3.5 py-2 text-sm text-white placeholder:text-white/35 transition-colors focus:border-[#9945FF] focus:bg-white/[0.04] focus:outline-none focus:ring-1 focus:ring-[#9945FF]";
+  "mt-1.5 min-h-11 w-full rounded-xl border border-white/[0.1] bg-black/40 px-3.5 py-2 text-base text-white placeholder:text-white/35 transition-colors focus:border-[#9945FF] focus:bg-white/[0.04] focus:outline-none focus:ring-1 focus:ring-[#9945FF] sm:min-h-10 sm:text-sm";
 
 /** The last successfully read balance, tagged with the address it belongs to. */
 type WalletBalance = { address: string; lamports: bigint };
@@ -199,12 +200,12 @@ export default function CreatePaymentRequestForm({
   return (
     <section
       aria-labelledby="create-request-heading"
-      className="rounded-2xl border border-white/[0.08] bg-[#0E0E12] p-5 sm:p-6"
+      className="rounded-2xl border border-white/[0.08] bg-[#0E0E12] p-5 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0"
     >
       <div className="space-y-1.5 border-b border-white/[0.06] pb-4">
         <h2
           id="create-request-heading"
-          className="text-base font-semibold text-white"
+          className="text-base font-semibold text-white sm:hidden"
         >
           New Payment Request
         </h2>
@@ -231,7 +232,7 @@ export default function CreatePaymentRequestForm({
         </div>
       </div>
 
-      <form noValidate onSubmit={handleSubmit} className="mt-5 space-y-4">
+      <form noValidate onSubmit={handleSubmit} className="mt-5 space-y-4 sm:mt-4 sm:space-y-5">
         {/* Amount Input & Presets */}
         <div>
           <div className="flex items-baseline justify-between gap-2">
@@ -362,7 +363,7 @@ export default function CreatePaymentRequestForm({
         </div>
 
         {/* Customer Information (Optional) */}
-        <div className="grid gap-3 sm:grid-cols-2 pt-1">
+        <div className="grid gap-3 pt-1 sm:grid-cols-2 sm:gap-4">
           <div>
             <label
               htmlFor={ids.customerName}
@@ -446,7 +447,7 @@ export default function CreatePaymentRequestForm({
           </div>
         )}
 
-        <div className="border-t border-white/[0.08] pt-4 mt-6">
+        <div className="mt-6 border-t border-white/[0.08] pt-4 sm:mt-5">
           <div className="flex items-center justify-end gap-3">
             <button
               type="button"

@@ -72,7 +72,10 @@ export default function DashboardShell({
   }, [isNavOpen]);
 
   return (
-    <div className="min-h-dvh bg-canvas text-ink lg:h-dvh lg:overflow-hidden">
+    <div
+      data-dashboard-shell
+      className="min-h-dvh bg-canvas text-ink lg:h-dvh lg:overflow-hidden"
+    >
       {/* Desktop sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-40 hidden border-r border-[rgba(255,255,255,0.08)] bg-surface transition-[width] duration-200 ease-in-out lg:flex lg:flex-col ${
@@ -125,7 +128,7 @@ export default function DashboardShell({
         <main
           className={
             mainClassName ??
-            "flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:overflow-y-auto lg:px-9 lg:py-8"
+            "flex-1 px-4 py-4 sm:px-6 sm:py-6 lg:overflow-y-auto lg:px-8 lg:py-5 xl:px-8 xl:py-5"
           }
         >
           {children}

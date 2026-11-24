@@ -8,7 +8,6 @@ import {
   useIsWalletReady,
 } from "@solana/kit-plugin-wallet/react";
 import { BrandMark } from "@/components/dashboard/icons";
-import { SOLANA_NETWORK_NAME } from "@/lib/solana/config";
 import type { PaymentRequest } from "@/lib/payment-requests/types";
 import { shortenAddress } from "@/lib/solana/address";
 import { useIsHydrated } from "@/lib/use-is-hydrated";
@@ -107,10 +106,6 @@ export default function CheckoutShell({
               </span>
             )}
 
-            <div className="flex items-center gap-1.5 rounded-full border border-accent/25 bg-accent-soft/30 px-2.5 py-1 text-xs font-medium text-accent">
-              <span className="size-1.5 rounded-full bg-accent animate-pulse" />
-              {SOLANA_NETWORK_NAME}
-            </div>
           </div>
         </div>
       </header>

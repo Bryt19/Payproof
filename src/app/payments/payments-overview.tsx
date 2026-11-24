@@ -60,7 +60,7 @@ export default function PaymentsOverview({
     {
       label: "Failed",
       value: summary.failedCount.toLocaleString("en-US"),
-      hint: "Expired or cancelled requests",
+      hint: "Failed, expired or cancelled requests",
       badge: "Closed",
       badgeColor: "bg-red-400/10 text-red-300 border-red-400/25",
       valueColor: "text-red-300",

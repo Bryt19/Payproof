@@ -15,6 +15,8 @@ import {
 type TransactionDetailsModalProps = {
   payment: PaymentRequest;
   onClose: () => void;
+  /** Called after a successful server-side cancellation. */
+  onCancelled?: () => void;
 };
 
 const statusStyles: Record<
@@ -44,6 +46,12 @@ const statusStyles: Record<
     bg: "rgba(255,255,255,0.03)",
     text: "rgba(255,255,255,0.4)",
     dot: "#737373",
+  },
+  failed: {
+    label: "Failed",
+    bg: "rgba(239,68,68,0.08)",
+    text: "#ef4444",
+    dot: "#ef4444",
   },
 };
 
@@ -76,7 +84,53 @@ function isVerified(payment: PaymentRequest): boolean {
 export default function TransactionDetailsModal({
   payment,
   onClose,
+  onCancelled,
 }: TransactionDetailsModalProps) {
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  async function handleCancel() {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "Cancel this payment request? Its checkout link will stop accepting payments. This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+
+    setIsCancelling(true);
+    setCancelError(null);
+
+    try {
+      const response = await fetch(
+        `/api/payment-requests/${encodeURIComponent(payment.reference)}/cancel`,
+        { method: "POST", cache: "no-store" },
+      );
+      const body = (await response.json().catch(() => null)) as {
+        error?: unknown;
+      } | null;
+
+      if (!response.ok) {
+        throw new Error(
+          typeof body?.error === "string" && body.error
+            ? body.error
+            : "Could not cancel this payment request.",
+        );
+      }
+
+      onCancelled?.();
+      onClose();
+    } catch (cause) {
+      setCancelError(
+        cause instanceof Error
+          ? cause.message
+          : "Could not cancel this payment request.",
+      );
+    } finally {
+      setIsCancelling(false);
+    }
+  }
   const modalRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
@@ -438,11 +492,30 @@ export default function TransactionDetailsModal({
           </div>
         </div>
 
+        {cancelError && (
+          <p
+            role="alert"
+            className="mx-5 mb-2 rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200"
+          >
+            {cancelError}
+          </p>
+        )}
+
         {/* Footer */}
         <div
           className="flex items-center justify-end gap-3 border-t border-line px-5 py-3"
           style={{ background: "#16161B" }}
         >
+          {(payment.status === "pending" || payment.status === "failed") && (
+            <button
+              type="button"
+              disabled={isCancelling}
+              onClick={() => void handleCancel()}
+              className="mr-auto rounded-xl border border-red-500/30 px-4 py-2 text-sm font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isCancelling ? "Cancelling…" : "Cancel request"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onClose}

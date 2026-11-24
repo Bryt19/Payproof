@@ -9,10 +9,16 @@ import ModalShell from "./modal-shell";
 export default function CreateRequestDialog({
   onClose,
   onCreated,
+  onSaved,
   onPersistenceNotice,
 }: {
   onClose: () => void;
   onCreated: (request: PaymentRequest) => void;
+  /**
+   * Optional: called once the request is saved. Callers that want the dialog
+   * dismissed on creation (instead of showing the preview step) can use this.
+   */
+  onSaved?: (request: PaymentRequest) => void;
   onPersistenceNotice: (notice: string | null) => void;
 }) {
   const [step, setStep] = useState<"form" | "confirmation">("form");
@@ -22,6 +28,7 @@ export default function CreateRequestDialog({
     setSavedRequest(request);
     setStep("confirmation");
     onPersistenceNotice(null);
+    onSaved?.(request);
   }
 
   return (
@@ -33,6 +40,7 @@ export default function CreateRequestDialog({
           : "Amounts are charged on Solana Devnet. Not connected to a wallet and logged in to PayProof? The request is saved without a merchant address."
       }
       onClose={onClose}
+      widthClassName="max-w-md sm:max-w-2xl"
     >
       {step === "confirmation" && savedRequest ? (
         <PaymentRequestPreview

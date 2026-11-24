@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type RetryConfig } from "@google/genai";
 
 /**
  * Gemini tool-calling client for payment-request draft preparation.
@@ -12,7 +12,48 @@ import { GoogleGenAI } from "@google/genai";
 export const DRAFT_GEMINI_MODEL = "gemini-3.1-flash-lite";
 export const PREPARE_PAYMENT_REQUEST_TOOL = "prepare_payment_request";
 
-const REQUEST_TIMEOUT_MS = 25_000;
+/**
+ * Final application-level boundary around the whole model call. It is only a
+ * backstop: the SDK timeout and retry budget below are what normally bound the
+ * request. Worst case with those settings is 12s + backoff + 12s.
+ */
+export const DRAFT_REQUEST_TIMEOUT_MS = 25_000;
+
+/**
+ * Per-attempt HTTP timeout handed to the SDK. The SDK enforces it with
+ * `AbortSignal.timeout`, so an attempt that stalls is aborted at the socket
+ * rather than merely abandoned.
+ *
+ * A caller-supplied `signal` would *replace* this timeout (the SDK documents
+ * that `fetchOptions.signal` takes precedence over `timeout_ms`), so no signal
+ * is passed: keeping the real per-attempt abort is the stronger guarantee.
+ */
+export const DRAFT_SDK_TIMEOUT_MS = 12_000;
+
+/**
+ * Explicit, bounded retry budget: at most one retry with 250ms -> 750ms
+ * backoff. The SDK default (4 retries, 30s max elapsed, up to 8s between
+ * attempts) could outlive the application timeout and leave retries running
+ * after the response was already sent.
+ */
+export const DRAFT_SDK_RETRY_CONFIG: RetryConfig = {
+  strategy: "attempt-count-backoff",
+  maxRetries: 1,
+  backoff: {
+    initialInterval: 250,
+    maxInterval: 750,
+    exponent: 2,
+  },
+};
+
+/** Per-call options handed to the SDK: bounded timeout and bounded retries. */
+export const DRAFT_SDK_REQUEST_OPTIONS: {
+  timeout_ms: number;
+  retries: RetryConfig;
+} = {
+  timeout_ms: DRAFT_SDK_TIMEOUT_MS,
+  retries: DRAFT_SDK_RETRY_CONFIG,
+};
 
 export type DraftConversationTurn = {
   role: "user" | "assistant";
@@ -23,20 +64,27 @@ export type GeminiDraftProposal =
   | { kind: "tool_call"; arguments: Record<string, unknown> }
   | { kind: "message"; text: string };
 
+export type GeminiDraftFailureCode =
+  | "missing_api_key"
+  | "invalid_api_key"
+  | "quota_exceeded"
+  | "model_unavailable"
+  | "upstream_timeout"
+  | "upstream_unavailable"
+  | "invalid_model_response"
+  | "upstream_error";
+
+export type GeminiDraftFailure = {
+  ok: false;
+  code: GeminiDraftFailureCode;
+  message: string;
+  /** Gemini's HTTP status, when the failure came from an HTTP response. */
+  upstreamStatus?: number;
+};
+
 export type GeminiDraftResult =
   | { ok: true; proposal: GeminiDraftProposal }
-  | {
-      ok: false;
-      code:
-        | "missing_api_key"
-        | "invalid_api_key"
-        | "quota_exceeded"
-        | "model_unavailable"
-        | "upstream_timeout"
-        | "invalid_model_response"
-        | "upstream_error";
-      message: string;
-    };
+  | GeminiDraftFailure;
 
 const SYSTEM_INSTRUCTION = [
   "You are PayProof AI, preparing a payment request for an authenticated merchant.",
@@ -89,6 +137,8 @@ type InteractionLike = {
 };
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  // Final safety boundary only. Each HTTP attempt is already bounded by the
+  // SDK's own `timeout_ms`, which aborts the request instead of leaking it.
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(Object.assign(new Error("Gemini did not respond in time."), { code: "ai_timeout" }));
@@ -107,14 +157,38 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-function classifyFailure(err: unknown): GeminiDraftResult {
-  const details = err as { status?: number; message?: string; code?: string | number };
+/**
+ * Maps a failed Gemini call (or the application timeout) onto the small set of
+ * failure codes the handler understands. Exported for tests: it is pure.
+ */
+export function classifyDraftFailure(err: unknown): GeminiDraftFailure {
+  const details = err as {
+    status?: number;
+    message?: string;
+    code?: string | number;
+    name?: string;
+  };
   const status = typeof details?.status === "number" ? details.status : undefined;
   const message = details?.message ?? "The AI service request failed.";
   const lower = message.toLowerCase();
 
+  const fail = (
+    code: GeminiDraftFailureCode,
+  ): GeminiDraftFailure => ({ ok: false, code, message, upstreamStatus: status });
+
+  // Our own 25s boundary.
   if (details?.code === "ai_timeout") {
-    return { ok: false, code: "upstream_timeout", message };
+    return fail("upstream_timeout");
+  }
+  // The SDK's per-attempt 12s timeout, aborted via AbortSignal.timeout.
+  // `APIConnectionTimeoutError` is what this SDK raises for its own
+  // timeout_ms; `RequestTimeoutError` is the lower-level HTTP client error.
+  // Neither carries an HTTP status.
+  if (
+    details?.name === "APIConnectionTimeoutError" ||
+    details?.name === "RequestTimeoutError"
+  ) {
+    return fail("upstream_timeout");
   }
   if (
     status === 401 ||
@@ -123,15 +197,20 @@ function classifyFailure(err: unknown): GeminiDraftResult {
     lower.includes("unauthenticated") ||
     lower.includes("permission denied")
   ) {
-    return { ok: false, code: "invalid_api_key", message };
+    return fail("invalid_api_key");
   }
   if (status === 429 || lower.includes("quota") || lower.includes("rate limit")) {
-    return { ok: false, code: "quota_exceeded", message };
+    return fail("quota_exceeded");
+  }
+  // Status wins over the message heuristics below: an overloaded model can
+  // mention "model" in its 5xx body, which must not be reported as missing.
+  if (status === 500 || status === 502 || status === 503 || status === 504) {
+    return fail("upstream_unavailable");
   }
   if (status === 404 || lower.includes("model")) {
-    return { ok: false, code: "model_unavailable", message };
+    return fail("model_unavailable");
   }
-  return { ok: false, code: "upstream_error", message };
+  return fail("upstream_error");
 }
 
 function buildTranscript(
@@ -193,25 +272,28 @@ export async function proposePaymentRequestDraft({
 
   try {
     interaction = (await withTimeout(
-      client.interactions.create({
-        model: DRAFT_GEMINI_MODEL,
-        input: buildTranscript(message, history),
-        system_instruction: SYSTEM_INSTRUCTION,
-        tools: [
-          {
-            type: "function",
-            name: PREPARE_PAYMENT_REQUEST_TOOL,
-            description:
-              "Prepare a draft payment request for merchant review. This does not create or save anything.",
-            parameters: PARAMETERS,
-          },
-        ],
-        store: false,
-      }),
-      REQUEST_TIMEOUT_MS,
+      client.interactions.create(
+        {
+          model: DRAFT_GEMINI_MODEL,
+          input: buildTranscript(message, history),
+          system_instruction: SYSTEM_INSTRUCTION,
+          tools: [
+            {
+              type: "function",
+              name: PREPARE_PAYMENT_REQUEST_TOOL,
+              description:
+                "Prepare a draft payment request for merchant review. This does not create or save anything.",
+              parameters: PARAMETERS,
+            },
+          ],
+          store: false,
+        },
+        DRAFT_SDK_REQUEST_OPTIONS,
+      ),
+      DRAFT_REQUEST_TIMEOUT_MS,
     )) as unknown as InteractionLike;
   } catch (err) {
-    return classifyFailure(err);
+    return classifyDraftFailure(err);
   }
 
   const steps = interaction.steps ?? [];

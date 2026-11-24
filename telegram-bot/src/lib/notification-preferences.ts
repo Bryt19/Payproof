@@ -7,13 +7,15 @@ import { createSupabaseClient } from "./payment-requests/supabase.js";
  * Per-merchant Telegram notification preferences.
  *
  * Storage lives in `notification_preferences`, keyed by
- * `(merchant_address, event_type)`. A missing row means "disabled": enabling is
- * always an explicit merchant action, never an implicit default.
+ * `(merchant_address, event_type)`. A missing row means "disabled", except for
+ * `payment_failed`, which defaults to enabled like the web Settings page so a
+ * genuine failure is never silently hidden from a linked merchant.
  */
 
 export const NOTIFICATION_EVENT_TYPES = [
   "payment_request_created",
   "payment_received",
+  "payment_failed",
   "payment_request_expired",
   "payment_request_cancelled",
 ] as const;
@@ -28,6 +30,7 @@ export type NotificationPreferences = Record<
 export const EVENT_LABELS: Record<NotificationEventType, string> = {
   payment_request_created: "Request created",
   payment_received: "Payment received",
+  payment_failed: "Payment failed",
   payment_request_expired: "Request expired",
   payment_request_cancelled: "Request cancelled",
 };
@@ -35,6 +38,7 @@ export const EVENT_LABELS: Record<NotificationEventType, string> = {
 export const EVENT_DESCRIPTIONS: Record<NotificationEventType, string> = {
   payment_request_created: "a new payment request is created",
   payment_received: "a payment is verified on Solana",
+  payment_failed: "a payment attempt reaches failed",
   payment_request_expired: "a request expires unpaid",
   payment_request_cancelled: "a request is cancelled",
 };
@@ -74,7 +78,7 @@ export function parseToggleCallbackData(
 
 /** Preference state store, injectable so handlers are testable without a DB. */
 export type NotificationPreferenceStore = {
-  /** Read all four preferences for a merchant wallet. */
+  /** Read all preferences for a merchant wallet. */
   getAll(merchantAddress: string): Promise<NotificationPreferences>;
   /** Persist one preference; resolves true when the write succeeded. */
   set(
@@ -88,6 +92,7 @@ function emptyPreferences(): NotificationPreferences {
   return {
     payment_request_created: null,
     payment_received: null,
+    payment_failed: true,
     payment_request_expired: null,
     payment_request_cancelled: null,
   };

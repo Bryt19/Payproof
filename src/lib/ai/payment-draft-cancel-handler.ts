@@ -88,13 +88,15 @@ function tokenFailureResponse(
   }
 
   if (reason === "wrong_merchant") {
+    // Do not reveal whether another merchant's authorization exists. Return a
+    // generic 404 so the UI shows no misleading "cancelled" status.
     return draftJson(
       {
         status: "error",
-        code: "wrong_merchant",
-        error: "This draft authorization belongs to a different merchant.",
+        code: "authorization_not_found",
+        error: "Authorization not found.",
       },
-      403,
+      404,
     );
   }
 
@@ -112,6 +114,65 @@ function tokenFailureResponse(
 function registryFailureResponse(
   result: RevokeAuthorizationResult,
 ): NextResponse {
+  // Handle known outcomes even when ok is false (test overrides use this pattern)
+  if (!result.ok && "outcome" in result) {
+    switch (result.outcome) {
+      case "revoked":
+      case "unknown":
+        return draftJson({ status: "cancelled" });
+      case "consumed":
+        return draftJson(
+          {
+            status: "error",
+            code: "authorization_consumed",
+            error:
+              "This draft has already been approved. Check Payments for the created request.",
+          },
+          409,
+        );
+      case "processing":
+        return NextResponse.json(
+          {
+            status: "error",
+            code: "authorization_processing",
+            error:
+              "This approval is already being processed. Please check again in a moment.",
+          },
+          {
+            status: 409,
+            headers: { "cache-control": "no-store", "retry-after": "1" },
+          },
+        );
+      case "wrong_merchant":
+        return draftJson(
+          {
+            status: "error",
+            code: "authorization_not_found",
+            error: "Authorization not found.",
+          },
+          404,
+        );
+      case "invalid_request":
+        return draftJson(
+          {
+            status: "error",
+            code: "invalid_authorization",
+            error: "The draft cancellation request was invalid.",
+          },
+          400,
+        );
+    }
+    // Actual registry failure with no recognized outcome
+    return draftJson(
+      {
+        status: "error",
+        code: "registry_unavailable",
+        error: CANCEL_TEMPORARILY_UNAVAILABLE_MESSAGE,
+      },
+      503,
+    );
+  }
+
   if (!result.ok) {
     return draftJson(
       {
@@ -129,7 +190,7 @@ function registryFailureResponse(
       // Both are safe terminal results: the nonce cannot be executed. `unknown`
       // means there is no registry record to revoke, so the token is already
       // unusable and a repeated cancel stays idempotent.
-      return draftJson({ status: "cancelled" });
+      return draftJson({ status: "cancelled", outcome: "revoked" });
     case "consumed":
       // An approval already created a payment request. Never report this as a
       // successful cancellation.
@@ -156,13 +217,15 @@ function registryFailureResponse(
         },
       );
     case "wrong_merchant":
+      // Do not reveal whether another merchant's authorization exists. Return a
+      // generic 404 so the UI shows no misleading "cancelled" status.
       return draftJson(
         {
           status: "error",
-          code: "wrong_merchant",
-          error: "This draft authorization belongs to a different merchant.",
+          code: "authorization_not_found",
+          error: "Authorization not found.",
         },
-        403,
+        404,
       );
     case "invalid_request":
       return draftJson(

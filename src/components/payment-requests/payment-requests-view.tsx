@@ -73,6 +73,7 @@ export default function PaymentRequestsView() {
         error={error}
         onRetry={refetch}
         onCreate={() => setIsCreateOpen(true)}
+        onChanged={() => void refetch(true)}
       />
 
       <CreateFab

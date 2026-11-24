@@ -19,6 +19,7 @@ import {
 import {
   proposePaymentRequestDraft,
   type DraftConversationTurn,
+  type GeminiDraftFailureCode,
   type GeminiDraftResult,
 } from "./gemini-payment-draft";
 import {
@@ -54,6 +55,42 @@ export const AI_DRAFT_NOT_CONFIGURED_MESSAGE =
   "Draft preparation is not configured on the server.";
 export const AI_DRAFT_AUTH_UNAVAILABLE_MESSAGE =
   "Authentication is temporarily unavailable.";
+
+const AI_DRAFT_UPSTREAM_UNAVAILABLE_MESSAGE =
+  "The AI assistant is busy right now. Please try again shortly.";
+const AI_DRAFT_GENERIC_FAILURE_MESSAGE =
+  "The AI assistant could not prepare a draft. Please try again.";
+
+/**
+ * One explicit row per failure code, so no code can silently fall through to a
+ * status that contradicts it (a timeout must never be reported as a gateway
+ * error, and an upstream 5xx must never be reported as a timeout).
+ */
+const DRAFT_FAILURE_RESPONSES: Record<
+  GeminiDraftFailureCode,
+  { status: number; message: string }
+> = {
+  missing_api_key: { status: 503, message: AI_DRAFT_NOT_CONFIGURED_MESSAGE },
+  invalid_api_key: { status: 502, message: AI_DRAFT_GENERIC_FAILURE_MESSAGE },
+  quota_exceeded: {
+    status: 503,
+    message: "The AI assistant is busy. Please try again shortly.",
+  },
+  model_unavailable: { status: 502, message: AI_DRAFT_GENERIC_FAILURE_MESSAGE },
+  invalid_model_response: {
+    status: 502,
+    message: AI_DRAFT_GENERIC_FAILURE_MESSAGE,
+  },
+  upstream_unavailable: {
+    status: 503,
+    message: AI_DRAFT_UPSTREAM_UNAVAILABLE_MESSAGE,
+  },
+  upstream_timeout: {
+    status: 504,
+    message: "The AI assistant took too long to respond. Please try again.",
+  },
+  upstream_error: { status: 502, message: AI_DRAFT_GENERIC_FAILURE_MESSAGE },
+};
 
 const NO_STORE = { "cache-control": "no-store" } as const;
 const MAX_MESSAGE_LENGTH = 2_000;
@@ -107,6 +144,13 @@ function defaultDependencies(): PaymentDraftHandlerDependencies {
     draftSecret: () => resolveDraftTokenSecret(),
     now: () => new Date(),
   };
+}
+
+function logGeminiFailure(code: GeminiDraftFailureCode, upstreamStatus?: number) {
+  console.error("[ai/payment-drafts] gemini failure", {
+    code,
+    upstreamStatus: upstreamStatus ?? null,
+  });
 }
 
 function json(
@@ -306,6 +350,7 @@ export function createPaymentDraftPostHandler(
     try {
       proposal = await deps.proposeDraft({ message, history });
     } catch {
+      logGeminiFailure("upstream_error");
       return json(
         {
           status: "error",
@@ -317,29 +362,15 @@ export function createPaymentDraftPostHandler(
     }
 
     if (!proposal.ok) {
-      const status =
-        proposal.code === "upstream_timeout"
-          ? 504
-          : proposal.code === "missing_api_key"
-            ? 503
-            : proposal.code === "quota_exceeded"
-              ? 503
-              : 502;
+      // Log the classification once, server-side only. The message body is
+      // intentionally omitted: it can echo conversation content.
+      logGeminiFailure(proposal.code, proposal.upstreamStatus);
+
+      const failure = DRAFT_FAILURE_RESPONSES[proposal.code];
 
       return json(
-        {
-          status: "error",
-          code: proposal.code,
-          error:
-            proposal.code === "missing_api_key"
-              ? "The AI assistant is not configured on the server."
-              : proposal.code === "quota_exceeded"
-                ? "The AI assistant is busy. Please try again shortly."
-                : proposal.code === "upstream_timeout"
-                  ? "The AI assistant took too long to respond. Please try again."
-                  : "The AI assistant could not prepare a draft. Please try again.",
-        },
-        status,
+        { status: "error", code: proposal.code, error: failure.message },
+        failure.status,
       );
     }
 

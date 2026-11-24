@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useClient } from "@solana/react";
@@ -37,6 +43,11 @@ import {
 } from "@/lib/solana/payment";
 import { formatSol, formatSolExact } from "@/lib/solana/units";
 import { useIsHydrated } from "@/lib/use-is-hydrated";
+import {
+  recordWalletRejection,
+  requestPaymentAttempt,
+  shouldRecordWalletRejection,
+} from "@/lib/payment-requests/attempt-client";
 
 type PaymentPhase =
   | "idle"
@@ -287,6 +298,157 @@ function ClosedPanel({ request }: { request: PaymentRequest }) {
   );
 }
 
+const SWIPE_THUMB_SIZE = 40;
+const SWIPE_INSET = 4;
+
+/**
+ * Mobile-only slide-to-pay control. Dragging the thumb across the track pays;
+ * the thumb is also a real button so keyboard and assistive tech can activate
+ * it with Enter/Space.
+ */
+function SwipeToPay({
+  label,
+  disabled,
+  busy,
+  onComplete,
+}: {
+  label: string;
+  disabled: boolean;
+  busy: boolean;
+  onComplete: () => void;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [offset, setOffset] = useState(0);
+  const [travel, setTravel] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startX = useRef(0);
+  const startOffset = useRef(0);
+  const offsetRef = useRef(0);
+  const maxOffset = useRef(0);
+  const completed = useRef(false);
+
+  function setDragOffset(next: number) {
+    offsetRef.current = next;
+    setOffset(next);
+  }
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (disabled || busy) return;
+
+    const track = trackRef.current;
+    if (!track) return;
+
+    maxOffset.current = Math.max(0, track.clientWidth - SWIPE_THUMB_SIZE - SWIPE_INSET * 2);
+    setTravel(maxOffset.current);
+    startX.current = event.clientX;
+    startOffset.current = offsetRef.current;
+    completed.current = false;
+    setDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!dragging) return;
+
+    const next = Math.min(
+      maxOffset.current,
+      Math.max(0, startOffset.current + event.clientX - startX.current),
+    );
+    setDragOffset(next);
+  }
+
+  function finishDrag(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!dragging) return;
+
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+
+    const threshold = maxOffset.current * 0.8;
+    if (threshold > 0 && offsetRef.current >= threshold) {
+      setDragOffset(maxOffset.current);
+      if (!completed.current) {
+        completed.current = true;
+        onComplete();
+      }
+      window.setTimeout(() => setDragOffset(0), 240);
+    } else {
+      setDragOffset(0);
+    }
+  }
+
+  function cancelDrag() {
+    setDragging(false);
+    setDragOffset(0);
+  }
+
+  const armed = travel > 0 && offset >= travel * 0.8;
+
+  return (
+    <div
+      ref={trackRef}
+      className="relative h-11 min-w-0 flex-1 overflow-hidden rounded-3xl border border-line bg-surface-raised sm:hidden"
+    >
+      <div
+        aria-hidden="true"
+        className="absolute inset-y-1 left-1 rounded-full bg-accent/20"
+        style={{ width: offset + SWIPE_THUMB_SIZE }}
+      />
+
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 flex items-center justify-center pl-9 pr-3 text-xs font-semibold text-neutral-300"
+        style={{ opacity: Math.max(0.25, 1 - offset / Math.max(1, travel)) }}
+      >
+        <span className="truncate">
+          {busy ? "Processing…" : armed ? "Release to pay" : label}
+        </span>
+      </span>
+
+      <button
+        type="button"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishDrag}
+        onPointerCancel={cancelDrag}
+        onKeyDown={(event) => {
+          if ((event.key === "Enter" || event.key === " ") && !disabled && !busy) {
+            event.preventDefault();
+            onComplete();
+          }
+        }}
+        disabled={disabled || busy}
+        aria-label={`${label}. Slide right to pay, or press Enter.`}
+        aria-busy={busy}
+        className={`absolute inset-y-1 left-1 flex size-10 touch-none select-none items-center justify-center rounded-full border text-white shadow-md transition-[transform,background-color,box-shadow] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed ${
+          armed
+            ? "border-white/30 bg-[#B266FF] shadow-[0_0_22px_rgba(178,102,255,0.7)]"
+            : "border-white/10 bg-[#16161C]"
+        } ${dragging ? "cursor-grabbing duration-0" : "cursor-grab duration-200"}`}
+        style={{ transform: `translateX(${offset}px)` }}
+      >
+        {busy ? (
+          <span className="size-4 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+        ) : (
+          <svg
+            className="size-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
 export default function CheckoutPayment({
   request,
   onBack,
@@ -305,10 +467,15 @@ export default function CheckoutPayment({
   const [payerAddress, setPayerAddress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shortfall, setShortfall] = useState<Shortfall | null>(null);
+  const [rejectionNotice, setRejectionNotice] = useState<string | null>(null);
+  const feedbackRef = useRef<HTMLDivElement>(null);
 
   // Guards against double-click in-flight
   const inFlight = useRef(false);
   const verificationInFlight = useRef(false);
+  // One server-issued attempt token per wallet prompt. It is consumed exactly
+  // once and never reused, so a replay cannot increment the rejection count.
+  const attemptTokenRef = useRef<string | null>(null);
 
   const isBusy =
     phase === "preparing" ||
@@ -416,6 +583,7 @@ export default function CheckoutPayment({
     setPayerAddress(null);
     setError(null);
     setShortfall(null);
+    setRejectionNotice(null);
     setPhase("preparing");
 
     try {
@@ -456,6 +624,11 @@ export default function CheckoutPayment({
         return;
       }
 
+      // Issue the server-side attempt before the wallet prompt. A failure here
+      // must not block payment; it only means a rejection cannot be counted.
+      const attempt = await requestPaymentAttempt(request.reference);
+      attemptTokenRef.current = attempt?.token ?? null;
+
       setPhase("awaiting-approval");
       const signedTransaction = await signTransactionMessageWithSigners(message);
 
@@ -471,12 +644,20 @@ export default function CheckoutPayment({
         throw new Error("The RPC did not return a transaction signature.");
       }
 
+      // A submitted transaction is never a wallet rejection: drop the token so
+      // it cannot be used to record one.
+      attemptTokenRef.current = null;
+
       const signatureString = String(submittedSignature);
       setSignature(signatureString);
       setPhase("verifying");
 
       await verifyPayment(signatureString);
     } catch (cause) {
+      // Read and clear the token exactly once for this attempt.
+      const attemptToken = attemptTokenRef.current;
+      attemptTokenRef.current = null;
+
       if (cause instanceof PaymentTransferError) {
         setError(cause.message);
         setPhase("failed");
@@ -484,6 +665,29 @@ export default function CheckoutPayment({
       }
 
       const failure = describePaymentFailure(cause);
+
+      if (shouldRecordWalletRejection(failure.kind) && attemptToken) {
+        // Awaited on purpose: the server counter must be updated before the UI
+        // reports the outcome. Duplicate/replayed tokens are refused by the
+        // database RPC, so this can never count twice.
+        const outcome = await recordWalletRejection(
+          request.reference,
+          attemptToken,
+        );
+
+        if (outcome?.recorded) {
+          if (outcome.status === "failed") {
+            setRejectionNotice(
+              "Three wallet rejections recorded. This request is now marked failed, but you can still retry the payment.",
+            );
+            router.refresh();
+          } else if (outcome.rejectionCount !== null) {
+            setRejectionNotice(
+              `Wallet rejection recorded (${outcome.rejectionCount} of 3). No SOL was moved.`,
+            );
+          }
+        }
+      }
 
       if (failure.kind === "rejected") {
         setPhase("rejected");
@@ -502,12 +706,45 @@ export default function CheckoutPayment({
     } finally {
       inFlight.current = false;
     }
-  }, [client, request, signature, signer, verifyPayment]);
+  }, [client, request, router, signature, signer, verifyPayment]);
 
   const handleRetryVerification = useCallback(() => {
     if (!signature || verificationInFlight.current) return;
     void verifyPayment(signature);
   }, [signature, verifyPayment]);
+
+  // On phones the feedback block now sits at the top of the card. Bring it
+  // into view when a result appears so it is not missed after paying at the
+  // bottom of the page. Desktop keeps its existing scroll position.
+  useEffect(() => {
+    const hasFeedback =
+      phase === "failed" ||
+      phase === "insufficient" ||
+      phase === "rejected" ||
+      phase === "verification-error" ||
+      phase === "awaiting-confirmation" ||
+      signature !== null;
+
+    if (!hasFeedback) return;
+    if (window.matchMedia("(min-width: 640px)").matches) return;
+
+    const node = feedbackRef.current;
+    if (!node) return;
+
+    const timeout = window.setTimeout(() => {
+      node.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+
+    return () => window.clearTimeout(timeout);
+  }, [phase, signature, error, rejectionNotice, shortfall]);
+
+  // A verified payment replaces the whole card; make sure the confirmation is
+  // visible on mobile even if the customer paid from the bottom of the page.
+  useEffect(() => {
+    if (phase !== "verified" && request.status !== "paid") return;
+    if (window.matchMedia("(min-width: 640px)").matches) return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [phase, request.status]);
 
   if (request.status === "paid" || phase === "verified") {
     return (
@@ -529,9 +766,143 @@ export default function CheckoutPayment({
 
   const amountSol = formatSolExact(BigInt(request.amountLamports));
   const hasSignature = signature !== null;
+  const payLabel =
+    phase === "preparing"
+      ? "Preparing transaction…"
+      : phase === "awaiting-approval"
+        ? "Approve in wallet…"
+        : phase === "submitting"
+          ? "Submitting to Devnet…"
+          : phase === "verifying"
+            ? "Verifying payment…"
+            : phase === "awaiting-confirmation"
+              ? "Awaiting confirmation…"
+              : phase === "verification-error"
+                ? "Verification incomplete"
+                : !isReady
+                  ? "Connect wallet first"
+                  : !request.merchantAddress
+                    ? "Payment unavailable"
+                    : phase === "rejected" || phase === "failed"
+                      ? `Retry Pay ${amountSol} SOL`
+                      : `Pay ${amountSol} SOL`;
+
+  const hasFeedback =
+    isBusy ||
+    hasSignature ||
+    phase === "failed" ||
+    phase === "insufficient" ||
+    phase === "rejected" ||
+    phase === "verification-error" ||
+    phase === "awaiting-confirmation";
 
   return (
     <div className="rounded-2xl border border-line bg-surface/90 p-6 shadow-xl space-y-6">
+      {/* Live feedback sits at the top on mobile so it cannot be missed. */}
+      {hasFeedback && (
+        <div
+          ref={feedbackRef}
+          aria-live="polite"
+          className="scroll-mt-20 space-y-3"
+        >
+          {isBusy && (
+            <div className="rounded-xl border border-accent/20 bg-accent-soft/20 p-3.5 text-xs text-neutral-200 flex items-center gap-3">
+              <div className="size-4 shrink-0 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+              <span>
+                {phase === "preparing"
+                  ? "Building the Devnet transfer transaction with recent blockhash…"
+                  : phase === "awaiting-approval"
+                    ? "Check your wallet window to confirm and sign the transaction."
+                    : phase === "submitting"
+                      ? "Submitting the signed transaction to Solana Devnet RPC…"
+                      : "Verifying transaction independently on Solana Devnet…"}
+              </span>
+            </div>
+          )}
+
+          {hasSignature && (
+            <SignatureBlock
+              signature={signature}
+              label="Transaction submitted to Solana Devnet"
+              tone="neutral"
+            />
+          )}
+
+          {phase === "awaiting-confirmation" && (
+            <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-300">
+              {error ?? "The transaction has not reached confirmed commitment yet."} This is not a failed payment; check again in a moment.
+            </div>
+          )}
+
+          {phase === "verification-error" && error && (
+            <div role="alert" className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-300">
+              {error}
+            </div>
+          )}
+
+          {phase === "rejected" && (
+            <div role="alert" className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-300">
+              {rejectionNotice ??
+                "Transaction rejected in your wallet. No SOL was moved. You can try again whenever you are ready."}
+            </div>
+          )}
+
+          {phase === "insufficient" && (
+            <div
+              role="alert"
+              className="flex items-start gap-2.5 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3 text-xs text-red-100"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#EF4444"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 8v4M12 16h.01" />
+              </svg>
+              <div className="space-y-2">
+                <p>
+                  {shortfall
+                    ? `Your wallet has ${formatSol(shortfall.balance)} SOL, but this payment needs ${formatSol(shortfall.required)} SOL (including network fee).`
+                    : (error ?? "Your wallet does not have enough Devnet SOL for this payment.")}
+                </p>
+                <p className="text-[11px] text-red-200/80">
+                  You can get free Devnet SOL from the official Solana Devnet faucet.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {phase === "failed" && error && (
+            <div
+              role="alert"
+              className="flex items-start gap-2.5 rounded-xl border border-[#EF4444]/40 bg-[#EF4444]/10 p-3 text-xs text-red-100"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#EF4444"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="mt-0.5 size-4 shrink-0"
+                aria-hidden="true"
+              >
+                <path d="M12 3.8 21 20H3L12 3.8Z" />
+                <path d="M12 9v4.5" />
+                <circle cx="12" cy="16.6" r="0.9" fill="#EF4444" stroke="none" />
+              </svg>
+              <p className="leading-relaxed">{error}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -601,52 +972,40 @@ export default function CheckoutPayment({
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {onBack && !isBusy && (
             <button
               type="button"
               onClick={onBack}
               disabled={isBusy}
-              className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface-raised px-4 py-2.5 text-sm font-medium text-neutral-300 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border border-line bg-surface-raised px-3 py-2.5 text-sm font-medium text-neutral-300 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-0 sm:gap-2 sm:px-4"
             >
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
-              <span>Back to Details</span>
+              <span className="sm:hidden">Back</span>
+              <span className="hidden sm:inline">Back to Details</span>
             </button>
           )}
+
+          <SwipeToPay
+            label={payLabel}
+            disabled={!canPay}
+            busy={isBusy}
+            onComplete={() => void handlePay()}
+          />
 
           <button
             type="button"
             onClick={() => void handlePay()}
             disabled={!canPay}
             aria-busy={isBusy}
-            className="inline-flex items-center justify-center gap-2 rounded-xl btn-brand-gradient px-6 py-2.5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="hidden items-center justify-center gap-2 rounded-xl btn-brand-gradient px-6 py-2.5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60 sm:inline-flex"
           >
             {isBusy && (
               <div className="size-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
             )}
-            <span>
-              {phase === "preparing"
-                ? "Preparing transaction…"
-                : phase === "awaiting-approval"
-                  ? "Approve in wallet…"
-                  : phase === "submitting"
-                    ? "Submitting to Devnet…"
-                    : phase === "verifying"
-                      ? "Verifying payment…"
-                      : phase === "awaiting-confirmation"
-                        ? "Awaiting confirmation…"
-                        : phase === "verification-error"
-                          ? "Verification incomplete"
-                          : !isReady
-                            ? "Connect wallet first"
-                            : !request.merchantAddress
-                              ? "Payment unavailable"
-                              : phase === "rejected" || phase === "failed"
-                                ? `Retry Pay ${amountSol} SOL`
-                                : `Pay ${amountSol} SOL`}
-            </span>
+            <span>{payLabel}</span>
           </button>
 
           {(phase === "awaiting-confirmation" ||
@@ -663,68 +1022,6 @@ export default function CheckoutPayment({
           )}
         </div>
 
-        {/* Live Feedback Messages */}
-        <div aria-live="polite" className="space-y-3 pt-2">
-          {isBusy && (
-            <div className="rounded-xl border border-accent/20 bg-accent-soft/20 p-3.5 text-xs text-neutral-200 flex items-center gap-3">
-              <div className="size-4 animate-spin rounded-full border-2 border-accent border-t-transparent shrink-0" />
-              <span>
-                {phase === "preparing"
-                  ? "Building the Devnet transfer transaction with recent blockhash…"
-                  : phase === "awaiting-approval"
-                    ? "Check your wallet window to confirm and sign the transaction."
-                    : phase === "submitting"
-                      ? "Submitting the signed transaction to Solana Devnet RPC…"
-                      : "Verifying transaction independently on Solana Devnet…"}
-              </span>
-            </div>
-          )}
-
-          {hasSignature && (
-            <SignatureBlock
-              signature={signature}
-              label="Transaction submitted to Solana Devnet"
-              tone="neutral"
-            />
-          )}
-
-          {phase === "awaiting-confirmation" && (
-            <div className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-300">
-              {error ?? "The transaction has not reached confirmed commitment yet."} This is not a failed payment; check again in a moment.
-            </div>
-          )}
-
-          {phase === "verification-error" && error && (
-            <div role="alert" className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-300">
-              {error}
-            </div>
-          )}
-
-          {phase === "rejected" && (
-            <div role="alert" className="rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs text-amber-300">
-              Transaction rejected in your wallet. No SOL was moved. You can try again whenever you are ready.
-            </div>
-          )}
-
-          {phase === "insufficient" && (
-            <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300 space-y-2">
-              <p>
-                {shortfall
-                  ? `Your wallet has ${formatSol(shortfall.balance)} SOL, but this payment needs ${formatSol(shortfall.required)} SOL (including network fee).`
-                  : (error ?? "Your wallet does not have enough Devnet SOL for this payment.")}
-              </p>
-              <p className="text-[11px] text-neutral-400">
-                You can get free Devnet SOL from the official Solana Devnet faucet.
-              </p>
-            </div>
-          )}
-
-          {phase === "failed" && error && (
-            <div role="alert" className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">
-              {error}
-            </div>
-          )}
-        </div>
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ const FILTER_OPTIONS: ReadonlyArray<{ value: FilterStatus; label: string }> = [
   { value: "paid", label: "Paid" },
   { value: "expired", label: "Expired" },
   { value: "cancelled", label: "Cancelled" },
+  { value: "failed", label: "Failed" },
 ];
 
 const LIMIT = 50;
@@ -149,6 +150,7 @@ export default function InvoicesView() {
       paid: summary.paid,
       expired: 0,
       cancelled: 0,
+      failed: 0,
     };
     // Expired/cancelled counts aren't shown as primary cards but filters can show list totals.
     // Keep chips simple; list total is in the header from summary.
