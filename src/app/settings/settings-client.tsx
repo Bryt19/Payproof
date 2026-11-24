@@ -15,6 +15,7 @@ import {
   SearchIcon,
   ExternalLinkIcon,
 } from "@/components/dashboard/icons";
+import { TelegramIntegration } from "@/components/settings/telegram-integration";
 import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
 import { WalletConnectModal } from "@/components/landing/wallet-connect-modal";
 import { SOLANA_NETWORK_NAME } from "@/lib/solana/config";
@@ -66,6 +67,7 @@ type SectionId =
   | "general"
   | "wallet"
   | "notifications"
+  | "telegram"
   | "appearance"
   | "security"
   | "about";
@@ -74,6 +76,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
   general: "General preferences",
   wallet: "Wallet settings",
   notifications: "Notifications",
+  telegram: "Telegram",
   appearance: "Appearance",
   security: "Security & privacy",
   about: "About Payproof",
@@ -83,6 +86,7 @@ const SECTION_DESCRIPTIONS: Record<SectionId, string> = {
   general: "How Payproof displays currency, time, and numbers for you.",
   wallet: "Manage the Solana wallet connected to this console.",
   notifications: "Choose which transaction and payment events you want to be notified about.",
+  telegram: "Connect Telegram to receive verified payment alerts in chat.",
   appearance: "Theme and visual density preferences.",
   security: "How Payproof handles non-custodial signing and data privacy.",
   about: "Product details, version, and external blockchain resources.",
@@ -159,6 +163,7 @@ const SECTIONS: readonly SectionId[] = [
   "general",
   "wallet",
   "notifications",
+  "telegram",
   "appearance",
   "security",
   "about",
@@ -579,6 +584,12 @@ export default function SettingsClient() {
                   />
                 ))}
               </div>
+            </SectionHeader>
+          )}
+
+          {activeSection === "telegram" && (
+            <SectionHeader id="telegram">
+              <TelegramIntegration />
             </SectionHeader>
           )}
 

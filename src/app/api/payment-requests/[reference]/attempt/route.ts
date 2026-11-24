@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { isValidPaymentReference } from "@/lib/payment-requests/reference";
 import { createSupabaseClient } from "@/lib/payment-requests/supabase";
+import { expireStalePaymentRequests } from "@/lib/payment-requests/expiration";
 import { resolveClientIp } from "@/lib/auth/rate-limit";
 import {
   ATTEMPT_TOKEN_TTL_MS,
@@ -24,6 +25,11 @@ export async function POST(
 
   // 3. Load the payment request and check its status
   const supabase = createSupabaseClient();
+
+  // Expired requests must not accept new attempts. Persist expiry first so the
+  // status check below sees the terminal state.
+  await expireStalePaymentRequests({ supabase, reference });
+
   const { data: requestByRef, error: qError } = await supabase
     .from("payment_requests")
     .select("status")

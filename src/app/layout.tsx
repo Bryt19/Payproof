@@ -38,7 +38,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased font-sans">
+    <html lang="en" className="h-full antialiased font-sans" data-scroll-behavior="smooth">
       <head>
         <link rel="icon" type="image/png" href="/payproof-icon.png" />
         <link rel="apple-touch-icon" href="/payproof-icon.png" />

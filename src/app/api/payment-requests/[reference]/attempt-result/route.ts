@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { createSupabaseClient } from "@/lib/payment-requests/supabase";
 import { mapAttemptRejectionResponse } from "@/lib/payment-requests/attempt-responses";
+import { createPaymentFailedNotification } from "@/lib/notifications/server";
+import { shouldNotifyPaymentFailed } from "@/lib/notifications/payment-failed";
 import type { PostgrestError } from "@supabase/supabase-js";
 
 /**
@@ -108,7 +110,7 @@ export async function POST(
   const supabase = createSupabaseClient();
   const { data: requestByRef, error: qError } = await supabase
     .from("payment_requests")
-    .select("status")
+    .select("id, reference, status, merchant_address, amount_lamports")
     .eq("reference", reference)
     .maybeSingle();
 
@@ -160,6 +162,39 @@ export async function POST(
       { error: "Attempt could not be recorded." },
       { status: 409 },
     );
+  }
+
+  // Notify only on the genuine transition into `failed`, which happens when
+  // this rejection is the third recorded one. A duplicate callback cannot
+  // replay it because the attempt is already consumed (the RPC refuses), and
+  // transient RPC/network failures never reach this point. The notification
+  // insert is idempotent, so even a retried transition yields one row.
+  const requestRecord = requestByRef as {
+    id?: unknown;
+    reference?: unknown;
+    status?: unknown;
+    merchant_address?: unknown;
+    amount_lamports?: unknown;
+  };
+
+  if (
+    shouldNotifyPaymentFailed({
+      previousStatus:
+        typeof requestRecord.status === "string" ? requestRecord.status : null,
+      updatedStatus: rejection.status,
+      rejectionRecorded: rejection.recorded,
+    }) &&
+    typeof requestRecord.id === "string" &&
+    typeof requestRecord.reference === "string" &&
+    typeof requestRecord.merchant_address === "string" &&
+    typeof requestRecord.amount_lamports === "string"
+  ) {
+    await createPaymentFailedNotification({
+      merchantAddress: requestRecord.merchant_address,
+      paymentRequestId: requestRecord.id,
+      paymentRequestReference: requestRecord.reference,
+      amountLamports: requestRecord.amount_lamports,
+    });
   }
 
   // Development diagnostics: successful response shape

@@ -94,6 +94,7 @@ function memoryStore(
   const empty = (): Record<NotificationEventType, boolean | null> => ({
     payment_request_created: null,
     payment_received: null,
+    payment_failed: null,
     payment_request_expired: null,
     payment_request_cancelled: null,
   });
@@ -187,7 +188,7 @@ function linkedHarness(
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-test("only the four known event types are accepted as toggle targets", () => {
+test("only the known event types are accepted as toggle targets", () => {
   for (const eventType of NOTIFICATION_EVENT_TYPES) {
     assert.equal(parseToggleCallbackData(`notif_toggle:${eventType}`), eventType);
   }
@@ -215,6 +216,7 @@ test("unset preferences render as not set and are never implied enabled", () => 
   const text = buildNotificationPreferencesText({
     payment_request_created: null,
     payment_received: null,
+    payment_failed: null,
     payment_request_expired: null,
     payment_request_cancelled: null,
   });
@@ -228,6 +230,7 @@ test("keyboard carries a toggle per event plus the explicit test action", () => 
     buildNotificationPreferencesKeyboard({
       payment_request_created: false,
       payment_received: true,
+      payment_failed: true,
       payment_request_expired: null,
       payment_request_cancelled: false,
     }),
@@ -262,7 +265,7 @@ test("the dashboard keyboard still lists every menu action", () => {
 // Screens
 // ---------------------------------------------------------------------------
 
-test("linked notifications screen shows all four saved states and toggles", async () => {
+test("linked notifications screen shows all saved states and toggles", async () => {
   const store = memoryStore({
     payment_received: true,
     payment_request_expired: false,
@@ -276,6 +279,7 @@ test("linked notifications screen shows all four saved states and toggles", asyn
   const markup = markupOf(reply);
 
   assert.match(text, /Payment received: Enabled/);
+  assert.match(text, /Payment failed: Not set/);
   assert.match(text, /Request expired: Disabled/);
   assert.match(text, /Request created: Not set/);
   assert.match(text, /Request cancelled: Not set/);
@@ -382,7 +386,7 @@ test("toggling an enabled preference turns it off", async () => {
   );
 });
 
-test("each of the four event types toggles independently", async () => {
+test("each event type toggles independently", async () => {
   const store = memoryStore();
   const { bot } = linkedHarness(store);
 
@@ -402,6 +406,7 @@ test("a failed save is reported and nothing is redrawn", async () => {
     getAll: async () => ({
       payment_request_created: null,
       payment_received: null,
+      payment_failed: null,
       payment_request_expired: null,
       payment_request_cancelled: null,
     }),

@@ -43,6 +43,11 @@ const STATUS_META: Record<
     badgeClassName: "border-red-400/25 bg-red-400/10 text-red-300",
     dotClassName: "bg-red-300",
   },
+  failed: {
+    label: "Failed",
+    badgeClassName: "border-red-400/25 bg-red-400/10 text-red-300",
+    dotClassName: "bg-red-300",
+  },
 };
 
 export default function CheckoutSummary({
@@ -303,17 +308,17 @@ export default function CheckoutSummary({
       )}
 
       {/* Action Buttons */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-line/60">
+      <div className="flex items-center justify-between gap-2 border-t border-line/60 pt-2 sm:gap-3">
         {onChangeWallet ? (
           <button
             type="button"
             onClick={onChangeWallet}
-            className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface-raised px-4 py-2.5 text-sm font-medium text-neutral-300 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl border border-line bg-surface-raised px-2.5 py-2.5 text-xs font-medium text-neutral-300 hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-0 sm:gap-2 sm:px-4 sm:text-sm"
           >
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true">
               <path d="M19 12H5M12 19l-7-7 7-7" />
             </svg>
-            <span>Back to Wallet</span>
+            <span>Back: Wallet</span>
           </button>
         ) : <div />}
 
@@ -321,9 +326,9 @@ export default function CheckoutSummary({
           <button
             type="button"
             onClick={onNext}
-            className="inline-flex items-center justify-center gap-2 rounded-xl btn-brand-gradient px-6 py-2.5 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl btn-brand-gradient px-2.5 py-2.5 text-xs font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-0 sm:gap-2 sm:px-6 sm:text-sm"
           >
-            <span>Next: Proceed to Payment</span>
+            <span>Next: Payment</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-4" aria-hidden="true">
               <path d="M5 12h14M12 5l7 7-7 7" />
             </svg>

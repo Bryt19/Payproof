@@ -12,10 +12,14 @@ type LoadState = "idle" | "loading" | "ready" | "error";
 
 const TYPE_META: Record<
   NotificationType,
-  { label: string; icon: "request" | "received" | "expired" | "cancelled" }
+  {
+    label: string;
+    icon: "request" | "received" | "failed" | "expired" | "cancelled";
+  }
 > = {
   payment_request_created: { label: "Request created", icon: "request" },
   payment_received: { label: "Payment received", icon: "received" },
+  payment_failed: { label: "Payment failed", icon: "failed" },
   payment_request_expired: { label: "Request expired", icon: "expired" },
   payment_request_cancelled: { label: "Request cancelled", icon: "cancelled" },
 };
@@ -36,7 +40,10 @@ function formatRelativeTime(iso: string): string {
 }
 
 export function getNotificationHref(notification: NotificationRecord): string {
-  if (notification.type === "payment_received") {
+  if (
+    notification.type === "payment_received" ||
+    notification.type === "payment_failed"
+  ) {
     return `/payments?search=${encodeURIComponent(notification.paymentRequestReference)}`;
   }
   return getCheckoutPath(notification.paymentRequestReference);
@@ -58,6 +65,15 @@ export function NotificationTypeIcon({ type }: { type: NotificationType }) {
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${base} text-[#9945FF]`} aria-hidden="true">
         <path d="M14 3.5H7a1.8 1.8 0 0 0-1.8 1.8v13.4A1.8 1.8 0 0 0 7 20.5h10a1.8 1.8 0 0 0 1.8-1.8V8.3Z" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M14 3.5v4.8h4.8M9 13h6M9 16.5h4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (meta.icon === "failed") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${base} text-[#EF4444]`} aria-hidden="true">
+        <path d="M12 3.8 21 20H3L12 3.8Z" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M12 9v4.5" strokeLinecap="round" />
+        <circle cx="12" cy="16.6" r="0.9" fill="currentColor" stroke="none" />
       </svg>
     );
   }

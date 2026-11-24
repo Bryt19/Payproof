@@ -19,6 +19,7 @@ const TYPE_OPTIONS: Array<{ value: "all" | NotificationType; label: string }> = 
   { value: "all", label: "All types" },
   { value: "payment_request_created", label: "Requests created" },
   { value: "payment_received", label: "Payments received" },
+  { value: "payment_failed", label: "Failed payments" },
   { value: "payment_request_expired", label: "Expired" },
   { value: "payment_request_cancelled", label: "Cancelled" },
 ];

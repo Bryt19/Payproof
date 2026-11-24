@@ -356,7 +356,7 @@ Your merchant companion for verified PayProof payments.
 
 Dashboard
 • Payment summary — verified totals and counts
-• Recent transactions — payments verified on Solana
+• Recent transactions — newest requests, any status
 • Pending payments — outstanding requests
 • Receipts — proof for a verified payment
 
@@ -372,7 +372,7 @@ No PayProof merchant account is linked to this chat, so there is no payment data
 Link your PayProof account from the app, then try again.`,
   transactions: `🧾 Recent transactions
 
-No PayProof merchant account is linked to this chat, so there are no verified payments to list. A receipt is only issued for a payment that exists in your PayProof account; nothing is created here.
+No PayProof merchant account is linked to this chat, so there are no payment requests to list. Requests are always scoped to one linked merchant wallet; nothing is created here.
 
 Link your PayProof account from the app, then try again.`,
   pending: `⏳ Pending payments
@@ -453,7 +453,7 @@ Commands
 /help — Show this message
 /status — Merchant connection and bot status
 /summary — Verified payment totals and counts
-/transactions — Recent verified payments
+/transactions — Recent payment requests, any status
 /pending — Outstanding payment requests
 /receipt — Pick a verified payment and view its receipt
 /receipt <reference> — Receipt for a specific verified payment
@@ -576,7 +576,7 @@ export function registerHandlers(
       return;
     }
 
-    const result = await data.getRecentVerified(
+    const result = await data.getRecentTransactions(
       merchant.link.merchantAddress,
       5
     );

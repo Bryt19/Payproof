@@ -3,6 +3,10 @@
 import { useCallback, useMemo, useState } from "react";
 import type { PaymentRequest } from "@/lib/payment-requests/types";
 import { getCheckoutPath } from "@/lib/payment-requests/types";
+import {
+  bucketForStatus,
+  matchesStatusBucket,
+} from "@/lib/payment-requests/status-bucket";
 import { getCheckoutUrl } from "@/lib/payment-requests/checkout-url";
 import { shortenAddress } from "@/lib/solana/address";
 import { formatSolExact } from "@/lib/solana/units";
@@ -57,6 +61,12 @@ const statusStyles: Record<
     text: "rgba(255,255,255,0.45)",
     dot: "#737373",
   },
+  failed: {
+    label: "Failed",
+    bg: "rgba(239,68,68,0.08)",
+    text: "#ef4444",
+    dot: "#ef4444",
+  },
 };
 
 function formatCreatedDate(isoString: string): string {
@@ -90,12 +100,15 @@ export default function PaymentRequestList({
   error,
   onRetry,
   onCreate,
+  onChanged,
 }: {
   requests: readonly PaymentRequest[];
   status: "idle" | "loading" | "loaded" | "error";
   error: string | null;
   onRetry: () => void;
   onCreate: () => void;
+  /** Called after a server-side status transition so the list refetches. */
+  onChanged?: () => void;
 }) {
   const { copy } = useCopyFeedback();
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -105,6 +118,55 @@ export default function PaymentRequestList({
 
   const [sharingRequest, setSharingRequest] = useState<PaymentRequest | null>(null);
   const [detailsRequest, setDetailsRequest] = useState<PaymentRequest | null>(null);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const handleCancel = useCallback(
+    async (request: PaymentRequest) => {
+      if (
+        typeof window !== "undefined" &&
+        !window.confirm(
+          "Cancel this payment request? Its checkout link will stop accepting payments. This cannot be undone.",
+        )
+      ) {
+        return;
+      }
+
+      setIsCancelling(true);
+      setCancelError(null);
+
+      try {
+        const response = await fetch(
+          `/api/payment-requests/${encodeURIComponent(request.reference)}/cancel`,
+          { method: "POST", cache: "no-store" },
+        );
+
+        const body = (await response.json().catch(() => null)) as {
+          error?: unknown;
+        } | null;
+
+        if (!response.ok) {
+          throw new Error(
+            typeof body?.error === "string" && body.error
+              ? body.error
+              : "Could not cancel this payment request.",
+          );
+        }
+
+        setDetailsRequest(null);
+        onChanged?.();
+      } catch (cause) {
+        setCancelError(
+          cause instanceof Error
+            ? cause.message
+            : "Could not cancel this payment request.",
+        );
+      } finally {
+        setIsCancelling(false);
+      }
+    },
+    [onChanged],
+  );
 
   const handleCopyLink = useCallback(
     (request: PaymentRequest) => {
@@ -130,9 +192,7 @@ export default function PaymentRequestList({
   const counts = useMemo(() => {
     const c = { all: requests.length, paid: 0, pending: 0, failed: 0 };
     for (const r of requests) {
-      if (r.status === "paid") c.paid += 1;
-      else if (r.status === "pending") c.pending += 1;
-      else c.failed += 1;
+      c[bucketForStatus(r.status)] += 1;
     }
     return c;
   }, [requests]);
@@ -140,10 +200,8 @@ export default function PaymentRequestList({
   const filteredRequests = useMemo(() => {
     const q = search.trim().toLowerCase();
     return requests.filter((r) => {
-      // Filter by status bucket
-      if (activeFilter === "paid" && r.status !== "paid") return false;
-      if (activeFilter === "pending" && r.status !== "pending") return false;
-      if (activeFilter === "failed" && r.status !== "expired" && r.status !== "cancelled") return false;
+      // Filter by status bucket (failed includes failed, expired and cancelled).
+      if (!matchesStatusBucket(r.status, activeFilter)) return false;
 
       // Filter by search query
       if (q) {
@@ -214,7 +272,7 @@ export default function PaymentRequestList({
       </div>
 
       {/* Status Filter Tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-black/20 px-5 py-3 sm:px-6">
+      <div className="flex w-full max-w-full flex-nowrap items-center gap-2 overflow-x-auto border-b border-white/[0.06] bg-black/20 px-5 py-3 [-ms-overflow-style:none] [scrollbar-width:none] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible sm:px-6">
         {filterOptions.map((option) => {
           const isActive = activeFilter === option.value;
           const count = counts[option.value];
@@ -223,10 +281,11 @@ export default function PaymentRequestList({
               key={option.value}
               type="button"
               onClick={() => setActiveFilter(option.value)}
-              className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all duration-150 sm:min-h-0 ${
+              aria-pressed={isActive}
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all duration-150 sm:min-h-0 ${
                 isActive
                   ? "bg-[#9945FF] text-white shadow-[0_0_16px_rgba(153,69,255,0.4)]"
-                  : "text-white/60 hover:bg-white/[0.05] hover:text-white"
+                  : "bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white sm:bg-transparent sm:hover:bg-white/[0.05]"
               }`}
             >
               <span>{option.label}</span>
@@ -738,6 +797,15 @@ export default function PaymentRequestList({
               </div>
             )}
 
+            {cancelError && (
+              <p
+                role="alert"
+                className="rounded-xl border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200"
+              >
+                {cancelError}
+              </p>
+            )}
+
             {/* Modal Footer Actions */}
             <div className="flex items-center justify-between pt-2">
               <a
@@ -751,6 +819,18 @@ export default function PaymentRequestList({
               </a>
 
               <div className="flex items-center gap-2">
+                {(detailsRequest.status === "pending" ||
+                  detailsRequest.status === "failed") && (
+                  <button
+                    type="button"
+                    disabled={isCancelling}
+                    onClick={() => void handleCancel(detailsRequest)}
+                    className="inline-flex items-center gap-1 rounded-xl border border-red-500/30 px-3 py-2 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isCancelling ? "Cancelling…" : "Cancel request"}
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {

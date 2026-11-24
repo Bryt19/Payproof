@@ -1,7 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { TimeRange, VolumePoint, StatusBreakdown } from "@/lib/dashboard/charts";
+import { useCallback, useEffect, useState } from "react";
+import {
+  BREAKDOWN_COLORS,
+  type TimeRange,
+  type VolumePoint,
+  type StatusBreakdown,
+} from "@/lib/dashboard/charts";
 import { Button } from "@/components/ui/button";
 
 type ChartStatus =
@@ -15,12 +20,13 @@ const BREAKDOWN_POLL_MS = 45_000;
 const emptyBreakdown: StatusBreakdown = {
   confirmed: 0,
   pending: 0,
-  failedExpired: 0,
+  failedCancelled: 0,
   total: 0,
   confirmedPct: 0,
   pendingPct: 0,
-  failedExpiredPct: 0,
+  failedCancelledPct: 0,
 };
+
 
 function formatVolume(value: bigint): string {
   const whole = value / 1_000_000_000n;
@@ -133,7 +139,7 @@ function VolumeChart({
       </p>
 
       {/* Bars are percentage-based so the chart stays fluid at any width. */}
-      <div className="mt-3 flex h-[135px] items-end gap-[2px] pt-3 sm:mt-3.5 sm:h-[150px] sm:gap-[3px]">
+      <div className="mt-2.5 flex h-[120px] items-end gap-[2px] pt-2 sm:mt-3 sm:h-[130px] sm:gap-[3px]">
         {series.map((point) => {
           const ratio = Number(point.value) / maxValue;
           const pct = Number.isFinite(ratio) ? Math.max(1.5, ratio * 100) : 1.5;
@@ -231,34 +237,34 @@ function StatusBreakdownCard({
       label: "Confirmed",
       value: breakdown.confirmed,
       pct: breakdown.confirmedPct,
-      color: "#14F195",
+      color: BREAKDOWN_COLORS.confirmed,
     },
     {
       key: "pending",
       label: "Pending",
       value: breakdown.pending,
       pct: breakdown.pendingPct,
-      color: "#fbbf24",
+      color: BREAKDOWN_COLORS.pending,
     },
     {
-      key: "failedExpired",
-      label: "Failed / expired",
-      value: breakdown.failedExpired,
-      pct: breakdown.failedExpiredPct,
-      color: "#737373",
+      key: "failedCancelled",
+      label: "Failed / Cancelled",
+      value: breakdown.failedCancelled,
+      pct: breakdown.failedCancelledPct,
+      color: BREAKDOWN_COLORS.failedCancelled,
     },
   ];
 
   const maxValue = Math.max(breakdown.total, 1);
 
   return (
-    <div className="rounded-2xl border border-line bg-surface p-3.5 sm:p-4">
+    <div className="rounded-2xl border border-line bg-surface p-3.5 sm:p-4 xl:p-3.5">
       <h3 className="text-sm font-semibold">Payment status breakdown</h3>
       <p className="mt-0.5 text-xs" style={{ color: "rgba(255,255,255,0.4)" }}>
         From all payment requests in this account.
       </p>
 
-      <div className="mt-3 space-y-2.5">
+      <div className="mt-2.5 space-y-2">
         {items.map((item) => (
           <div key={item.key} className="flex items-center gap-3">
             <div
@@ -411,7 +417,7 @@ export default function DashboardCharts({
   }, [fetchData, merchant, range]);
 
   return (
-    <section aria-labelledby="analytics-heading" className="space-y-3 sm:space-y-3.5">
+    <section aria-labelledby="analytics-heading" className="space-y-2.5 sm:space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id="analytics-heading" className="text-sm font-semibold text-neutral-200">
@@ -425,7 +431,7 @@ export default function DashboardCharts({
         <div
           role="group"
           aria-label="Chart range"
-          className="rounded-xl border border-line bg-surface p-1"
+          className="ml-auto shrink-0 rounded-xl border border-line bg-surface p-1"
         >
           {(["7d", "30d", "90d"] as const).map((option) => (
             <button

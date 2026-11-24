@@ -54,6 +54,7 @@ export type RevokeOutcome =
 
 export type RevokeAuthorizationResult =
   | { ok: true; outcome: RevokeOutcome }
+  | { ok: false; outcome: RevokeOutcome }
   | AuthorizationRegistryFailure;
 
 const REVOKE_OUTCOMES: readonly RevokeOutcome[] = [

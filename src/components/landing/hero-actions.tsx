@@ -11,7 +11,7 @@ type Intent = "connect" | "payment";
 
 export function HeroWalletActions() {
   const router = useRouter();
-  const { status, isConnected, isConnecting, error, retry } = useWalletAuth();
+  const { isConnected, isConnecting, error, retry } = useWalletAuth();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [intent, setIntent] = useState<Intent>("connect");
@@ -44,25 +44,6 @@ export function HeroWalletActions() {
 
     openModal("payment");
   };
-
-  // The wallet store restores the last session asynchronously. Render a
-  // skeleton until that finishes so the label never flashes the wrong state.
-  if (status === "checking") {
-    return (
-      <>
-        <p role="status" className="sr-only">
-          {wallet.checking}
-        </p>
-        <div
-          aria-hidden="true"
-          className="mt-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-start gap-4 w-full sm:w-auto"
-        >
-          <div className="h-12 w-full sm:w-48 animate-pulse rounded-full border border-white/10 bg-white/[0.06]" />
-          <div className="h-12 w-full sm:w-40 animate-pulse rounded-full border border-white/10 bg-white/[0.04]" />
-        </div>
-      </>
-    );
-  }
 
   return (
     <>

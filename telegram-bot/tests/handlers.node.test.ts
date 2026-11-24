@@ -43,6 +43,7 @@ import {
 } from "../src/lib/notification-preferences.js";
 import {
   isVerifiedPayment,
+  normalizeStoredPaymentStatus,
   summarizePayments,
   type PayProofData,
   type StoredPayment,
@@ -81,6 +82,7 @@ function fakeData(overrides: Partial<PayProofData> = {}): PayProofData {
       },
     }),
     getRecentVerified: async () => ({ ok: true, data: [] }),
+    getRecentTransactions: async () => ({ ok: true, data: [] }),
     getPending: async () => ({ ok: true, data: [] }),
     getVerifiedReceipt: async () => ({ ok: true, data: null }),
   };
@@ -145,6 +147,7 @@ function memoryPreferenceStore(
   const empty = (): Record<NotificationEventType, boolean | null> => ({
     payment_request_created: null,
     payment_received: null,
+    payment_failed: null,
     payment_request_expired: null,
     payment_request_cancelled: null,
   });
@@ -593,6 +596,7 @@ test("linked merchant: /summary shows verified totals for the linked wallet", as
   assert.match(text, /Verified payments: 2/);
   assert.match(text, /Verified revenue: 1\.5 SOL/);
   assert.match(text, /Pending requests: 1/);
+  assert.match(text, /Failed \/ Cancelled \/ Expired: 0/);
   assert.doesNotMatch(text, /future update/i);
 });
 
@@ -619,19 +623,92 @@ test("linked merchant: summary button refreshes with real data", async () => {
   assert.ok(markup.includes('"main_menu"'), "back to menu must exist");
 });
 
-test("linked merchant: recent transactions list real verified payments", async () => {
+test("linked merchant: recent transactions show every status newest-first", async () => {
+  let asked: string | null = null;
+  let askedLimit: number | undefined;
+  const newestPending: StoredPayment = {
+    ...PENDING_PAYMENT,
+    id: "PR-66666666",
+    reference: "NewestPending111111111111111111111111111111",
+    description: "New order",
+    amountLamports: "500000000",
+    createdAt: "2026-11-21T12:00:00.000Z",
+  };
+  const failed: StoredPayment = {
+    ...PENDING_PAYMENT,
+    id: "PR-77777777",
+    reference: "FailedPayment111111111111111111111111111111",
+    description: "Test payment",
+    amountLamports: "1000000000",
+    status: "failed",
+    createdAt: "2026-11-21T11:00:00.000Z",
+  };
+  const cancelled: StoredPayment = {
+    ...PENDING_PAYMENT,
+    id: "PR-88888888",
+    reference: "CancelledPayment111111111111111111111111111",
+    description: "Cancelled order",
+    amountLamports: "2000000000",
+    status: "cancelled",
+    createdAt: "2026-11-21T10:00:00.000Z",
+  };
+  const expired: StoredPayment = {
+    ...PENDING_PAYMENT,
+    id: "PR-99999999",
+    reference: "ExpiredPayment11111111111111111111111111111",
+    description: "Old request",
+    amountLamports: "3000000000",
+    status: "expired",
+    createdAt: "2026-11-21T09:00:00.000Z",
+  };
+
   const data = fakeData({
-    getRecentVerified: async () => ({ ok: true, data: [VERIFIED_PAYMENT] }),
+    getRecentTransactions: async (merchantAddress, limit) => {
+      asked = merchantAddress;
+      askedLimit = limit;
+      return {
+        ok: true,
+        data: [newestPending, failed, cancelled, expired, VERIFIED_PAYMENT],
+      };
+    },
   });
 
   const { bot, calls } = linkedHarness(data);
   await deliver(bot, textUpdate("/transactions"));
 
   const text = messageText(firstReply(calls));
+  assert.equal(asked, MERCHANT_WALLET);
+  assert.equal(askedLimit, 5);
   assert.match(text, /Recent transactions/);
-  assert.match(text, /1\.5 SOL/);
-  assert.ok(text.includes(VERIFIED_REFERENCE));
-  assert.doesNotMatch(text, /9\.9 SOL/);
+  assert.match(text, /Status: Pending/);
+  assert.match(text, /Status: Failed/);
+  assert.match(text, /Status: Cancelled/);
+  assert.match(text, /Status: Expired/);
+  assert.match(text, /Status: Paid/);
+  assert.match(text, /🟡 0\.5 SOL — New order/);
+  assert.match(text, /🔴 1 SOL — Test payment/);
+  assert.match(text, /⚪ 2 SOL — Cancelled order/);
+  assert.match(text, /⚪ 3 SOL — Old request/);
+  assert.match(text, /🟢 1\.5 SOL — Invoice 1042/);
+  assert.match(text, /Verified: 2026-11-18/);
+  assert.match(text, /Created: 2026-11-21/);
+
+  // Query order is preserved: newest request first, verified payment last.
+  assert.ok(text.indexOf("New order") < text.indexOf("Test payment"));
+  assert.ok(text.indexOf("Test payment") < text.indexOf("Cancelled order"));
+  assert.ok(text.indexOf("Cancelled order") < text.indexOf("Old request"));
+  assert.ok(text.indexOf("Old request") < text.indexOf("Invoice 1042"));
+
+  // Every request appears once; payment attempts are never separate rows.
+  for (const reference of [
+    newestPending.reference,
+    failed.reference,
+    cancelled.reference,
+    expired.reference,
+    VERIFIED_REFERENCE,
+  ]) {
+    assert.equal(text.split(reference).length - 1, 1, `${reference} must appear once`);
+  }
 });
 
 test("linked merchant: pending payments list real pending requests", async () => {
@@ -653,7 +730,7 @@ test("empty payment history is handled gracefully", async () => {
 
   await deliver(bot, textUpdate("/transactions"));
   const transactions = messageText(firstReply(calls));
-  assert.match(transactions, /No verified payments yet/i);
+  assert.match(transactions, /No payment requests yet/i);
   assert.doesNotMatch(transactions, /\d+(\.\d+)? SOL/);
 
   const second = linkedHarness(fakeData());
@@ -672,12 +749,22 @@ test("verified and unverified payments are distinguished", () => {
     UNVERIFIED_PAYMENT,
     PENDING_PAYMENT,
     { ...PENDING_PAYMENT, id: "PR-44444444", status: "expired" },
+    { ...PENDING_PAYMENT, id: "PR-55555555", status: "failed" },
   ]);
 
   assert.equal(summary.verifiedCount, 1);
   assert.equal(summary.verifiedLamports, 1_500_000_000n);
+  // A failed request is closed work, never pending.
   assert.equal(summary.pendingCount, 1);
-  assert.equal(summary.failedCount, 1);
+  assert.equal(summary.failedCount, 2);
+});
+
+test("stored failed status is preserved instead of becoming pending", () => {
+  assert.equal(normalizeStoredPaymentStatus("failed"), "failed");
+  assert.equal(normalizeStoredPaymentStatus("pending"), "pending");
+  assert.equal(normalizeStoredPaymentStatus("paid"), "paid");
+  assert.equal(normalizeStoredPaymentStatus("expired"), "expired");
+  assert.equal(normalizeStoredPaymentStatus("cancelled"), "cancelled");
 });
 
 test("merchant data isolation: only the linked wallet is queried", async () => {

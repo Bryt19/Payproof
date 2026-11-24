@@ -3,6 +3,19 @@ import {
   createSupabaseClient,
   type ServerSupabaseClient,
 } from "./payment-requests/supabase.js";
+import {
+  formatSolAmount,
+  isVerifiedPayment,
+  summarizePayments,
+  type PaymentSummary,
+} from "./payment-summary.js";
+
+export {
+  formatSolAmount,
+  isVerifiedPayment,
+  summarizePayments,
+  type PaymentSummary,
+};
 
 /**
  * Server-side PayProof data access for the Telegram bot.
@@ -31,7 +44,12 @@ const PAYMENT_COLUMNS = [
   "created_at",
 ].join(",");
 
-export type StoredPaymentStatus = "pending" | "paid" | "expired" | "cancelled";
+export type StoredPaymentStatus =
+  | "pending"
+  | "paid"
+  | "expired"
+  | "cancelled"
+  | "failed";
 
 export type StoredPayment = {
   id: string;
@@ -46,13 +64,6 @@ export type StoredPayment = {
   createdAt: string;
 };
 
-export type PaymentSummary = {
-  verifiedCount: number;
-  verifiedLamports: bigint;
-  pendingCount: number;
-  failedCount: number;
-};
-
 export type DataResult<T> = { ok: true; data: T } | { ok: false };
 
 export type UnlinkResult = DataResult<boolean>;
@@ -60,6 +71,11 @@ export type UnlinkResult = DataResult<boolean>;
 export type PayProofData = {
   getSummary(merchantAddress: string): Promise<DataResult<PaymentSummary>>;
   getRecentVerified(
+    merchantAddress: string,
+    limit?: number
+  ): Promise<DataResult<readonly StoredPayment[]>>;
+  /** Newest requests for the merchant, regardless of payment status. */
+  getRecentTransactions(
     merchantAddress: string,
     limit?: number
   ): Promise<DataResult<readonly StoredPayment[]>>;
@@ -73,71 +89,14 @@ export type PayProofData = {
   ): Promise<DataResult<StoredPayment | null>>;
 };
 
-const LAMPORTS_PER_SOL = 1_000_000_000n;
 const PAYMENT_REFERENCE_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 export function isValidPaymentReference(value: string): boolean {
   return PAYMENT_REFERENCE_PATTERN.test(value);
 }
 
-/**
- * A payment is verified only when PayProof's server-side verifier recorded the
- * on-chain signature, the payer wallet and the verification timestamp. A `paid`
- * status alone is not enough evidence for revenue or a receipt.
- */
-export function isVerifiedPayment(payment: {
-  status: StoredPaymentStatus;
-  transactionSignature: string | null;
-  payerAddress: string | null;
-  verifiedAt: string | null;
-}): boolean {
-  return (
-    payment.status === "paid" &&
-    payment.transactionSignature !== null &&
-    payment.payerAddress !== null &&
-    payment.verifiedAt !== null
-  );
-}
-
 function toLamports(value: string): bigint {
   return /^\d+$/.test(value) ? BigInt(value) : 0n;
-}
-
-/** Exact SOL amount with trailing zeros trimmed (never float math). */
-export function formatSolAmount(lamports: bigint): string {
-  const whole = lamports / LAMPORTS_PER_SOL;
-  const fraction = lamports % LAMPORTS_PER_SOL;
-
-  if (fraction === 0n) {
-    return whole.toString();
-  }
-
-  return `${whole}.${fraction.toString().padStart(9, "0").replace(/0+$/, "")}`;
-}
-
-export function summarizePayments(
-  payments: readonly StoredPayment[]
-): PaymentSummary {
-  let verifiedCount = 0;
-  let verifiedLamports = 0n;
-  let pendingCount = 0;
-  let failedCount = 0;
-
-  for (const payment of payments) {
-    if (isVerifiedPayment(payment)) {
-      verifiedCount += 1;
-      verifiedLamports += toLamports(payment.amountLamports);
-    } else if (payment.status === "pending") {
-      pendingCount += 1;
-    } else if (
-      payment.status === "expired" ||
-      payment.status === "cancelled"
-    ) {
-      failedCount += 1;
-    }
-  }
-
-  return { verifiedCount, verifiedLamports, pendingCount, failedCount };
 }
 
 function formatDate(value: string | null): string {
@@ -170,10 +129,21 @@ Merchant wallet: ${merchantAddress}
 Verified payments: ${summary.verifiedCount}
 Verified revenue: ${formatSolAmount(summary.verifiedLamports)} SOL
 Pending requests: ${summary.pendingCount}
-Expired or cancelled: ${summary.failedCount}
+Failed / Cancelled / Expired: ${summary.failedCount}
 
 Only payments independently verified on Solana are counted.`;
 }
+
+const STATUS_DISPLAY: Record<
+  StoredPaymentStatus,
+  { emoji: string; label: string }
+> = {
+  paid: { emoji: "🟢", label: "Paid" },
+  pending: { emoji: "🟡", label: "Pending" },
+  failed: { emoji: "🔴", label: "Failed" },
+  cancelled: { emoji: "⚪", label: "Cancelled" },
+  expired: { emoji: "⚪", label: "Expired" },
+};
 
 export function buildRecentTransactionsText(
   payments: readonly StoredPayment[]
@@ -181,13 +151,22 @@ export function buildRecentTransactionsText(
   if (payments.length === 0) {
     return `🧾 Recent transactions
 
-No verified payments yet. A payment appears here only after PayProof verifies it on Solana.`;
+No payment requests yet. New requests will appear here regardless of status.`;
   }
 
-  const lines = payments.map(
-    (payment) =>
-      `• ${paymentAmountSol(payment)} — ${shorten(payment.description, 60)}\n  Reference: ${payment.reference}\n  Verified: ${formatDate(payment.verifiedAt)}`
-  );
+  const lines = payments.map((payment) => {
+    const status = STATUS_DISPLAY[payment.status];
+    const paidDate =
+      payment.status === "paid" && payment.verifiedAt
+        ? `Verified: ${formatDate(payment.verifiedAt)}`
+        : null;
+
+    return `${status.emoji} ${paymentAmountSol(payment)} — ${
+      shorten(payment.description, 60) || "Payment request"
+    }\nStatus: ${status.label}\nReference: ${payment.reference}\n${
+      paidDate ?? `Created: ${formatDate(payment.createdAt)}`
+    }`;
+  });
 
   return `🧾 Recent transactions
 
@@ -232,10 +211,13 @@ function logFailure(operation: string, error: PostgrestError): void {
   );
 }
 
-function normalizeStatus(raw: string): StoredPaymentStatus {
+export function normalizeStoredPaymentStatus(
+  raw: string,
+): StoredPaymentStatus {
   return raw === "paid" ||
     raw === "expired" ||
     raw === "cancelled" ||
+    raw === "failed" ||
     raw === "pending"
     ? raw
     : "pending";
@@ -249,7 +231,7 @@ function mapRow(row: Record<string, unknown>): StoredPayment {
     description: String(row.description ?? ""),
     customerName:
       typeof row.customer_name === "string" ? row.customer_name : null,
-    status: normalizeStatus(String(row.status ?? "pending")),
+    status: normalizeStoredPaymentStatus(String(row.status ?? "pending")),
     transactionSignature:
       typeof row.transaction_signature === "string"
         ? row.transaction_signature
@@ -354,6 +336,28 @@ export function createPayProofData(): PayProofData {
 
         if (error) {
           logFailure("select-recent", error);
+          return { ok: false };
+        }
+
+        const rows =
+          (data as unknown as Record<string, unknown>[] | null) ?? [];
+        return { ok: true, data: rows.map(mapRow) };
+      });
+    },
+
+    async getRecentTransactions(merchantAddress, limit) {
+      return withClient(
+        "recent-transactions-all",
+        async (supabase): Promise<DataResult<readonly StoredPayment[]>> => {
+        const { data, error } = await supabase
+          .from(PAYMENT_REQUESTS_TABLE)
+          .select(PAYMENT_COLUMNS)
+          .eq("merchant_address", merchantAddress)
+          .order("created_at", { ascending: false })
+          .limit(clampLimit(limit));
+
+        if (error) {
+          logFailure("select-recent-all", error);
           return { ok: false };
         }
 

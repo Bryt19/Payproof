@@ -41,6 +41,12 @@ const STATUS_STYLES: Record<InvoiceStatus, StatusStyle> = {
     text: "rgba(255,255,255,0.45)",
     dot: "#737373",
   },
+  failed: {
+    label: "Failed",
+    bg: "rgba(239,68,68,0.08)",
+    text: "#ef4444",
+    dot: "#ef4444",
+  },
 };
 
 const dateFormatter = new Intl.DateTimeFormat("en-US", {

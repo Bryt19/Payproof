@@ -6,6 +6,7 @@ import {
   describeRepositoryInitializationFailure,
 } from "@/lib/payment-requests/repository";
 import { isValidPaymentReference } from "@/lib/payment-requests/reference";
+import { expireStalePaymentRequests } from "@/lib/payment-requests/expiration";
 
 export const metadata: Metadata = {
   title: "Pay a payment request",
@@ -48,6 +49,10 @@ export default async function PayPage({
       />
     );
   }
+
+  // Persist expiry for a stale request before checkout renders it, so the
+  // customer never sees a payable page for an expired request.
+  await expireStalePaymentRequests({ reference: trimmed });
 
   // The only value taken from the URL is the reference used for this lookup.
   // Amount, merchant address, description and status all come from the row.

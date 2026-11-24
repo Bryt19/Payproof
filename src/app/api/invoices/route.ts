@@ -7,6 +7,7 @@ import {
   SupabaseConfigurationError,
 } from "@/lib/payment-requests/supabase";
 import type { Invoice, InvoiceSortDirection, InvoiceSortField, InvoiceStatus } from "@/lib/invoices/types";
+import { expireStalePaymentRequests } from "@/lib/payment-requests/expiration";
 
 /**
  * GET /api/invoices
@@ -30,6 +31,7 @@ const VALID_STATUSES: readonly InvoiceStatus[] = [
   "paid",
   "expired",
   "cancelled",
+  "failed",
 ];
 
 const VALID_SORT_FIELDS: readonly InvoiceSortField[] = [
@@ -154,6 +156,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // Persist expiry before reading summary or list rows.
+    await expireStalePaymentRequests({ supabase, merchantAddress });
+
     // Summary is calculated from this merchant's payment_requests (real records).
     // Total paid amount uses only verified paid records.
     const { data: summaryRows, error: summaryError } = await supabase

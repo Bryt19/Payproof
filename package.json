@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --experimental-strip-types --import ./tests/resolve-ts.mjs --test tests/payment-verification.test.ts tests/dashboard-summary.test.ts"
+    "test": "node --experimental-strip-types --import ./tests/resolve-ts.mjs --test tests/payment-verification.test.ts tests/dashboard-summary.test.ts tests/ai-payment-draft.node.test.ts tests/ai-payment-draft-review.node.test.ts tests/ai-payment-draft-execution.node.test.ts tests/ai-payment-draft-security.node.test.ts tests/ai-payment-draft-cancellation.node.test.ts"
   },
   "dependencies": {
+    "@google/genai": "^3.6.1",
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "@solana-program/system": "^0.16.0",

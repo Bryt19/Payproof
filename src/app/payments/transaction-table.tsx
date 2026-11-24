@@ -36,7 +36,7 @@ type TransactionTableProps = {
 };
 
 const FILTERS: readonly { value: PaymentStatusFilter; label: string }[] = [
-  { value: "all", label: "All payments" },
+  { value: "all", label: "All Payments" },
   { value: "paid", label: "Paid" },
   { value: "pending", label: "Pending" },
   { value: "failed", label: "Failed / Expired" },
@@ -69,6 +69,12 @@ const statusStyles: Record<
     bg: "rgba(255,255,255,0.03)",
     text: "rgba(255,255,255,0.4)",
     dot: "#737373",
+  },
+  failed: {
+    label: "Failed",
+    bg: "rgba(239,68,68,0.08)",
+    text: "#ef4444",
+    dot: "#ef4444",
   },
 };
 
@@ -156,9 +162,9 @@ export default function TransactionTable({
               type="search"
               value={filters.search}
               onChange={(event) => filters.onSearchChange(event.target.value)}
-              placeholder="Search reference, description…"
+              placeholder="Search reference, description, customer…"
               autoComplete="off"
-              className="h-11 w-full rounded-3xl border border-white/[0.1] bg-white/[0.03] pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:border-[#9945FF]/60 focus:bg-white/[0.05] focus:outline-none focus:ring-1 focus:ring-[#9945FF] sm:h-10"
+              className="h-11 w-full rounded-3xl border border-white/[0.1] bg-white/[0.03] pl-9 pr-8 text-xs text-white placeholder:text-white/35 focus:border-[#9945FF]/60 focus:bg-white/[0.05] focus:outline-none focus:ring-1 focus:ring-[#9945FF] sm:h-10 [&::-webkit-search-cancel-button]:hidden"
             />
             {filters.search !== "" && (
               <button
@@ -177,7 +183,7 @@ export default function TransactionTable({
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] bg-black/20 px-5 py-3 sm:px-6">
+      <div className="flex w-full max-w-full flex-nowrap items-center gap-2 overflow-x-auto border-b border-white/[0.06] bg-black/20 px-5 py-3 [-ms-overflow-style:none] [scrollbar-width:none] [-webkit-overflow-scrolling:touch] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible sm:px-6">
         {FILTERS.map((option) => {
           const isActive = filters.status === option.value;
           const count = filters.counts?.[option.value];
@@ -188,10 +194,10 @@ export default function TransactionTable({
               type="button"
               onClick={() => filters.onStatusChange(option.value)}
               aria-pressed={isActive}
-              className={`inline-flex min-h-11 items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all duration-150 sm:min-h-0 ${
+              className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs font-medium transition-all duration-150 sm:min-h-0 ${
                 isActive
                   ? "bg-[#9945FF] text-white shadow-[0_0_16px_rgba(153,69,255,0.4)]"
-                  : "text-white/60 hover:bg-white/[0.05] hover:text-white"
+                  : "bg-white/[0.04] text-white/60 hover:bg-white/[0.08] hover:text-white sm:bg-transparent sm:hover:bg-white/[0.05]"
               }`}
             >
               <span>{option.label}</span>
@@ -214,7 +220,7 @@ export default function TransactionTable({
           <button
             type="button"
             onClick={filters.onClearFilters}
-            className="ml-auto rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/70 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
+            className="ml-auto shrink-0 rounded-xl border border-white/[0.1] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/70 transition-colors hover:border-white/20 hover:bg-white/[0.06] hover:text-white"
           >
             Clear filters
           </button>

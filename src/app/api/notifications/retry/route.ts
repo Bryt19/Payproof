@@ -96,12 +96,12 @@ async function attemptDelivery(
     return;
   }
 
+  // No payload is supplied: the pipeline loads the reference and verified
+  // transaction signature from the original notification row.
   const result = await deliverNotificationToTelegram(db, {
     notificationId,
     merchantAddress,
     eventType,
-    payload: { reference: "", amountLamports: "0" },
-    sendOptions: {},
   });
 
   console.log(
