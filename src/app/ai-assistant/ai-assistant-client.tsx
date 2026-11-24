@@ -7,12 +7,33 @@ import {
   AssistantBubble,
   UserBubble,
 } from "@/components/ai-chat/message-bubble";
+import PaymentDraftCard from "@/components/ai-chat/payment-draft-card";
+import {
+  cancelDraftReview,
+  isDraftEdited,
+  parseDraftPreparationResponse,
+  shouldPreparePaymentDraft,
+  type DraftReview,
+} from "@/lib/ai/draft-review";
+import {
+  parseCancelResponse,
+  parseExecutionResponse,
+  parseReauthorizeResponse,
+  type DraftApprovalFailure,
+  type DraftApprovalResult,
+  type DraftCancelResult,
+} from "@/lib/ai/draft-execution";
+import { useMerchantSession } from "@/lib/auth/use-merchant-session";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   text: string;
   timestamp: Date;
+  /** Present only on an assistant message that prepared a reviewable draft. */
+  draft?: DraftReview;
+  /** Set when draft preparation asked for missing details. */
+  draftMissing?: string[];
 }
 
 type ChatState =
@@ -102,6 +123,7 @@ function makeAssistantErrorMessage(errorMessage: string): Message {
 export default function AIAssistantClient() {
   const [state, setState] = useState<ChatState>({ status: "empty" });
   const [inputValue, setInputValue] = useState("");
+  const merchantSession = useMerchantSession();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isComposing = useRef(false);
@@ -195,6 +217,309 @@ export default function AIAssistantClient() {
     [],
   );
 
+  /**
+   * Stage 1 draft preparation is a JSON endpoint, unlike the streaming chat
+   * endpoint. It returns either a signed draft for review or a normal
+   * clarification/validation message.
+   */
+  const prepareDraft = useCallback(
+    async (
+      conversation: readonly Message[],
+    ): Promise<{ text: string; review?: DraftReview; missing?: string[] }> => {
+      const latestUserMessage =
+        [...conversation].reverse().find((message) => message.role === "user")
+          ?.text ?? "";
+
+      const history = conversation
+        .slice(0, -1)
+        .filter((message) => message.text.trim().length > 0)
+        .slice(-12)
+        .map((message) => ({ role: message.role, text: message.text }));
+
+      const response = await fetch("/api/ai/payment-drafts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: latestUserMessage, history }),
+      });
+
+      const payload: unknown = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          throw new Error(
+            "Your merchant session expired. Sign in again, then ask me to prepare the draft.",
+          );
+        }
+
+        const parsed = parseDraftPreparationResponse(payload);
+
+        if (parsed.kind === "invalid") {
+          return {
+            text: [
+              parsed.message,
+              ...parsed.errors.map((error) => `• ${error.message}`),
+            ].join("\n"),
+            missing: [...new Set(parsed.errors.map((error) => error.field))],
+          };
+        }
+
+        if (parsed.kind === "clarification") {
+          return { text: parsed.message, missing: parsed.missing };
+        }
+
+        if (parsed.kind === "unsupported_currency") {
+          return { text: parsed.message, missing: ["amount"] };
+        }
+
+        if (parsed.kind === "error") {
+          throw new Error(parsed.message);
+        }
+
+        throw new Error(
+          "The AI assistant could not prepare a draft. Nothing was created.",
+        );
+      }
+
+      const parsed = parseDraftPreparationResponse(payload);
+
+      if (parsed.kind === "draft") {
+        return {
+          text: "I've prepared a payment request draft for your review. Nothing has been created yet — check the details before approving.",
+          review: parsed.review,
+        };
+      }
+
+      if (parsed.kind === "clarification") {
+        return { text: parsed.message, missing: parsed.missing };
+      }
+
+      if (parsed.kind === "unsupported_currency") {
+        return { text: parsed.message, missing: ["amount"] };
+      }
+
+      if (parsed.kind === "invalid") {
+        return {
+          text: [
+            parsed.message,
+            ...parsed.errors.map((error) => `• ${error.message}`),
+          ].join("\n"),
+          missing: [...new Set(parsed.errors.map((error) => error.field))],
+        };
+      }
+
+      if (parsed.kind === "error") {
+        throw new Error(parsed.message);
+      }
+
+      throw new Error(
+        "The AI assistant returned an unexpected draft response. Nothing was created.",
+      );
+    },
+    [],
+  );
+
+  const updateDraft = useCallback(
+    (messageId: string, nextReview: DraftReview) => {
+      setState((previous) => {
+        if (previous.status === "empty") return previous;
+
+        return {
+          ...previous,
+          messages: previous.messages.map((message) =>
+            message.id === messageId
+              ? { ...message, draft: nextReview }
+              : message,
+          ),
+        };
+      });
+    },
+    [],
+  );
+
+  const reauthorizeDraft = useCallback(
+    async (
+      review: DraftReview,
+    ): Promise<{ ok: true; review: DraftReview } | DraftApprovalFailure> => {
+      try {
+        const response = await fetch(
+          "/api/ai/payment-drafts/reauthorize",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              draftToken: review.draftToken,
+              draft: {
+                amount: review.draft.amountSol,
+                description: review.draft.description,
+                customerName: review.draft.customerName ?? "",
+                customerEmail: review.draft.customerEmail ?? "",
+              },
+            }),
+          },
+        );
+
+        const payload: unknown = await response.json().catch(() => null);
+        const parsed = parseReauthorizeResponse(payload);
+
+        if (!response.ok && parsed.ok) {
+          return {
+            ok: false,
+            code: "reauthorization_failed",
+            message: "The edited draft could not be re-authorized.",
+          };
+        }
+
+        if (!parsed.ok && response.status === 401) {
+          return {
+            ...parsed,
+            message:
+              "Your merchant session expired. Sign in again, then approve the draft.",
+          };
+        }
+
+        return parsed;
+      } catch {
+        return {
+          ok: false,
+          code: "network_error",
+          message:
+            "The re-authorization request could not be reached. Check your connection and try again.",
+        };
+      }
+    },
+    [],
+  );
+
+  const executeDraft = useCallback(
+    async (review: DraftReview): Promise<DraftApprovalResult> => {
+      try {
+        const response = await fetch("/api/ai/payment-drafts/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draftToken: review.draftToken }),
+        });
+
+        const payload: unknown = await response.json().catch(() => null);
+        const parsed = parseExecutionResponse(payload);
+
+        if (!response.ok && parsed.ok) {
+          return {
+            ok: false,
+            code: "execution_failed",
+            message: "The payment request could not be created.",
+          };
+        }
+
+        if (!parsed.ok && response.status === 401) {
+          return {
+            ...parsed,
+            message:
+              "Your merchant session expired. Sign in again, then approve the draft.",
+          };
+        }
+
+        return parsed;
+      } catch {
+        return {
+          ok: false,
+          code: "network_error",
+          message:
+            "The approval request could not be reached. Check your connection and try again.",
+        };
+      }
+    },
+    [],
+  );
+
+  const approveDraft = useCallback(
+    async (
+      messageId: string,
+      review: DraftReview,
+    ): Promise<DraftApprovalResult> => {
+      let authorized = review;
+
+      if (isDraftEdited(review)) {
+        const reauthorized = await reauthorizeDraft(review);
+        if (!reauthorized.ok) return reauthorized;
+
+        authorized = reauthorized.review;
+        updateDraft(messageId, authorized);
+      }
+
+      return executeDraft(authorized);
+    },
+    [executeDraft, reauthorizeDraft, updateDraft],
+  );
+
+  // One cancellation per draft at a time. The card also guards its own button,
+  // but this stops any other caller from issuing a second revoke request while
+  // the first is still resolving.
+  const cancelInFlight = useRef<Set<string>>(new Set());
+
+  const cancelDraft = useCallback(
+    async (
+      messageId: string,
+      review: DraftReview,
+    ): Promise<DraftCancelResult> => {
+      if (cancelInFlight.current.has(messageId)) {
+        return {
+          ok: false,
+          code: "cancel_in_flight",
+          message: "Cancellation is already in progress.",
+        };
+      }
+
+      cancelInFlight.current.add(messageId);
+
+      try {
+        const response = await fetch("/api/ai/payment-drafts/cancel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draftToken: review.draftToken }),
+        });
+
+        const payload: unknown = await response.json().catch(() => null);
+        const parsed = parseCancelResponse(payload);
+
+        if (!response.ok && parsed.ok) {
+          return {
+            ok: false,
+            code: "cancel_failed",
+            message: "The draft could not be cancelled. Please try again.",
+          };
+        }
+
+        if (!parsed.ok && response.status === 401) {
+          return {
+            ...parsed,
+            message:
+              "Your merchant session expired. Sign in again, then cancel the draft.",
+          };
+        }
+
+        // The draft is only marked cancelled after the server confirms it. A
+        // consumed or in-flight authorization stays visible with its error.
+        if (parsed.ok) {
+          updateDraft(messageId, cancelDraftReview(review));
+        }
+
+        return parsed;
+      } catch {
+        return {
+          ok: false,
+          code: "network_error",
+          message:
+            "The cancellation request could not be reached. Check your connection and try again.",
+        };
+      } finally {
+        cancelInFlight.current.delete(messageId);
+      }
+    },
+    [updateDraft],
+  );
+
   const sendMessage = useCallback(
     (textToSend: string) => {
       const cleanText = textToSend.trim();
@@ -218,6 +543,46 @@ export default function AIAssistantClient() {
         messages: updatedWithUser,
         streamText: "",
       });
+
+      const previousAssistantMessage = [...updatedWithUser]
+        .reverse()
+        .find((message) => message.role === "assistant");
+
+      if (
+        shouldPreparePaymentDraft(
+          cleanText,
+          previousAssistantMessage?.draftMissing ?? [],
+        )
+      ) {
+        prepareDraft(updatedWithUser)
+          .then(({ text, review, missing }) => {
+            const assistantMessage: Message = {
+              ...makeAssistantMessageFromText(text),
+              ...(review ? { draft: review } : {}),
+              ...(missing && missing.length > 0
+                ? { draftMissing: missing }
+                : {}),
+            };
+
+            setState({
+              status: "ready",
+              messages: [...updatedWithUser, assistantMessage],
+            });
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "The AI assistant request failed.";
+
+            setState({
+              status: "ready",
+              messages: [...updatedWithUser, makeAssistantErrorMessage(message)],
+            });
+          });
+
+        return;
+      }
 
       fetchAssistantReply(updatedWithUser, (partialText) => {
         setState({
@@ -255,7 +620,7 @@ export default function AIAssistantClient() {
           });
         });
     },
-    [state, fetchAssistantReply],
+    [state, fetchAssistantReply, prepareDraft],
   );
 
   const handleSend = () => {
@@ -384,19 +749,43 @@ export default function AIAssistantClient() {
             )}
 
             {/* Active Messages List */}
-            {messages.map((message) => (
-              <div key={message.id}>
-                {message.role === "user" ? (
-                  <UserBubble timestamp={message.timestamp}>
-                    {message.text}
-                  </UserBubble>
-                ) : (
-                  <AssistantBubble timestamp={message.timestamp}>
-                    {message.text}
-                  </AssistantBubble>
-                )}
-              </div>
-            ))}
+            {messages.map((message) => {
+              const draftReview = message.draft;
+
+              return (
+                <div key={message.id}>
+                  {message.role === "user" ? (
+                    <UserBubble timestamp={message.timestamp}>
+                      {message.text}
+                    </UserBubble>
+                  ) : (
+                    <>
+                      <AssistantBubble timestamp={message.timestamp}>
+                        {message.text}
+                      </AssistantBubble>
+
+                      {draftReview && (
+                        <div className="mt-2.5 sm:pl-10">
+                          <PaymentDraftCard
+                            review={draftReview}
+                            merchantWallet={merchantSession.walletAddress}
+                            onUpdate={(nextReview) =>
+                              updateDraft(message.id, nextReview)
+                            }
+                            onCancel={() =>
+                              cancelDraft(message.id, draftReview)
+                            }
+                            onApprove={() =>
+                              approveDraft(message.id, draftReview)
+                            }
+                          />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
 
             {/* Thinking / Loading indicator */}
             {state.status === "loading" && (
