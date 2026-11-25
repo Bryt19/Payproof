@@ -5,8 +5,8 @@ import { registerHandlers } from "./handlers.js";
 /**
  * Reads a required environment variable.
  *
- * The message names the variable and where to configure it, so a failed Render
- * deploy is actionable without ever printing the value.
+ * The message names the variable and where to configure it, so a failed start
+ * is actionable without ever printing the value.
  */
 function readRequiredEnv(name: string, description: string): string {
   const value = process.env[name];
@@ -14,8 +14,8 @@ function readRequiredEnv(name: string, description: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(
       `${name} is not set (${description}). ` +
-        "Configure it in the Render service environment variables, " +
-        "or in telegram-bot/.env when running locally."
+        "Add it to telegram-bot/.env (copy telegram-bot/.env.example) " +
+        "or export it in your shell."
     );
   }
 
@@ -41,15 +41,15 @@ function describeStartupError(error: unknown): string {
     if (error.error_code === 401) {
       return (
         "Telegram rejected the bot token (401 Unauthorized). " +
-        "Check TELEGRAM_BOT_TOKEN in the service environment."
+        "Check TELEGRAM_BOT_TOKEN in telegram-bot/.env."
       );
     }
 
     if (error.error_code === 409) {
       return (
         "Telegram reported a polling conflict (409 Conflict). " +
-        "Another bot instance is polling this token. Run exactly one worker " +
-        "and stop any local `npm run dev` bot using the same token."
+        "Another bot process is polling this token. Stop any other copy " +
+        "(including `npm run dev`) using the same token."
       );
     }
 
