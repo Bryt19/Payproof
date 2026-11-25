@@ -31,6 +31,7 @@ export type WalletAuth = {
   status: WalletAuthStatus;
   isChecking: boolean;
   isConnecting: boolean;
+  isDisconnecting: boolean;
   isConnected: boolean;
   wallets: ReturnType<typeof useWallets>;
   walletName: string | null;
@@ -40,6 +41,8 @@ export type WalletAuth = {
   connect: (walletName?: string) => void;
   retry: () => void;
   disconnect: () => void;
+  /** Resolves once the wallet store has cleared the connection. */
+  disconnectAsync: () => Promise<void>;
 };
 
 /**
@@ -64,6 +67,8 @@ export function useWalletAuth(): WalletAuth {
   const [lastWalletName, setLastWalletName] = useState<string | null>(null);
 
   const isConnecting = walletStatus === "connecting" || connect.isRunning;
+  const isDisconnecting =
+    walletStatus === "disconnecting" || disconnect.isRunning;
   const isChecking =
     !isHydrated || !isWalletReady || walletStatus === "reconnecting";
   const isConnected = !isChecking && Boolean(connectedWallet);
@@ -102,10 +107,16 @@ export function useWalletAuth(): WalletAuth {
     disconnect.dispatch();
   }, [disconnect]);
 
+  const disconnectWalletAsync = useCallback(
+    () => disconnect.dispatchAsync(),
+    [disconnect],
+  );
+
   return {
     status,
     isChecking,
     isConnecting,
+    isDisconnecting,
     isConnected,
     wallets,
     walletName: isHydrated
@@ -119,5 +130,6 @@ export function useWalletAuth(): WalletAuth {
     connect: connectTo,
     retry,
     disconnect: disconnectWallet,
+    disconnectAsync: disconnectWalletAsync,
   };
 }

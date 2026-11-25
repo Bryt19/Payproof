@@ -1,6 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Providers from "./providers";
+import { ConsolePreferencesProvider } from "@/components/providers/console-preferences-provider";
+import { CONSOLE_PREFERENCES_KEY } from "@/lib/preferences/console-preferences";
+
+/**
+ * Applies saved visual preferences to <html> before first paint. The provider
+ * repeats this in an effect, but running here first avoids a layout flash for
+ * compact mode and reduced motion.
+ */
+const CONSOLE_PREFERENCES_BOOTSTRAP = `(function(){try{var raw=localStorage.getItem(${JSON.stringify(
+  CONSOLE_PREFERENCES_KEY,
+)});var saved=raw?JSON.parse(raw):{};var root=document.documentElement;root.setAttribute("data-theme","dark");root.setAttribute("data-compact",saved&&saved.compactMode===true?"true":"false");root.setAttribute("data-reduce-motion",saved&&saved.reduceMotion===true?"true":"false");}catch(error){}})();`;
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -38,7 +49,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased font-sans" data-scroll-behavior="smooth">
+    <html
+      lang="en"
+      className="h-full antialiased font-sans"
+      data-scroll-behavior="smooth"
+      suppressHydrationWarning
+    >
       <head>
         <link rel="icon" type="image/png" href="/payproof-icon.png" />
         <link rel="apple-touch-icon" href="/payproof-icon.png" />
@@ -48,9 +64,15 @@ export default function RootLayout({
           href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400..800;1,9..40,400..800&family=Manrope:wght@300;400;500;600;700;800&display=swap"
           rel="stylesheet"
         />
+        <script
+          id="console-preferences-bootstrap"
+          dangerouslySetInnerHTML={{ __html: CONSOLE_PREFERENCES_BOOTSTRAP }}
+        />
       </head>
       <body className="min-h-full bg-black text-white selection:bg-[#9945FF]/40 selection:text-white overflow-x-hidden">
-        <Providers>{children}</Providers>
+        <Providers>
+          <ConsolePreferencesProvider>{children}</ConsolePreferencesProvider>
+        </Providers>
       </body>
     </html>
   );

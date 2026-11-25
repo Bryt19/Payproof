@@ -51,6 +51,7 @@ export function HeroWalletActions() {
         {isConnected ? (
           <Button
             href={wallet.dashboardHref}
+            prefetch={false}
             size="lg"
             variant="primary"
             className="w-full sm:w-auto px-8"
@@ -106,6 +107,7 @@ export function HeroWalletActions() {
         open={isModalOpen}
         onClose={closeModal}
         onConnected={handleConnected}
+        signInOnConnect
       />
     </>
   );

@@ -8,6 +8,7 @@ import { useClient } from "@solana/react";
 import type { AppClient } from "@/lib/solana/client";
 import { fetchSolBalance } from "@/lib/solana/balance";
 import { useIsHydrated } from "@/lib/use-is-hydrated";
+import { DisconnectWalletDialog } from "@/components/wallet-disconnect-dialog";
 
 const REFRESH_INTERVAL_MS = 20_000;
 
@@ -147,9 +148,10 @@ function CopyButton({
 }
 
 export function WalletAvatarDropdown() {
-  const { isConnected, walletName, address, disconnect } = useWalletAuth();
+  const { isConnected, walletName, address } = useWalletAuth();
   const isHydrated = useIsHydrated();
   const [open, setOpen] = useState(false);
+  const [isDisconnectOpen, setIsDisconnectOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   const close = useCallback(() => setOpen(false), []);
@@ -307,8 +309,8 @@ export function WalletAvatarDropdown() {
           <button
             type="button"
             onClick={() => {
-              disconnect();
               close();
+              setIsDisconnectOpen(true);
             }}
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/8 hover:text-red-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400"
             role="menuitem"
@@ -330,6 +332,11 @@ export function WalletAvatarDropdown() {
           </button>
         </div>
       )}
+
+      <DisconnectWalletDialog
+        open={isDisconnectOpen}
+        onClose={() => setIsDisconnectOpen(false)}
+      />
     </div>
   );
 }

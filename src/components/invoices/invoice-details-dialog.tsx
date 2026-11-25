@@ -4,6 +4,11 @@ import { useCallback, useRef, useState } from "react";
 import type { Invoice, InvoiceStatus } from "@/lib/invoices/types";
 
 import { formatSolExact } from "@/lib/solana/units";
+import { useConsolePreferences } from "@/components/providers/console-preferences-provider";
+import {
+  formatConsoleAmount,
+  formatConsoleDate,
+} from "@/lib/preferences/console-preferences";
 import ModalShell from "@/components/payment-requests/modal-shell";
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from "@/components/dashboard/icons";
 
@@ -38,26 +43,6 @@ const STATUS: Record<InvoiceStatus, { label: string; className: string }> = {
   },
 };
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "UTC",
-});
-
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : dateFormatter.format(date);
-}
-
-function formatAmount(lamports: string): string {
-  try {
-    return `${formatSolExact(BigInt(lamports))} SOL`;
-  } catch {
-    return "—";
-  }
-}
-
 function Field({
   label,
   value,
@@ -81,6 +66,20 @@ function Field({
 }
 
 export function InvoiceDetailsDialog({ invoice, open, onClose }: InvoiceDetailsDialogProps) {
+  const { preferences } = useConsolePreferences();
+
+  function formatDate(value: string | null): string {
+    return formatConsoleDate(value, preferences, { includeTime: true });
+  }
+
+  function formatAmount(lamports: string): string {
+    try {
+      return `${formatConsoleAmount(formatSolExact(BigInt(lamports)), preferences)} SOL`;
+    } catch {
+      return "—";
+    }
+  }
+
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 

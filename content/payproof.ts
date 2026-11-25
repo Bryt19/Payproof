@@ -545,7 +545,7 @@ export const finalCta = {
   heading: "It's time to get paid with proof.",
   subtext:
     "Join the businesses, creators, and developers using Payproof.",
-  cta: { label: "GET STARTED", href: "/payment-requests" },
+  cta: { label: "GET STARTED", href: "/dashboard" },
 };
 
 export const footer = {

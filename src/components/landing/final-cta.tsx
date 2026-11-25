@@ -62,6 +62,7 @@ export function FinalCtaSection() {
             {isConnected ? (
               <Button
                 href={finalCta.cta.href}
+                prefetch={false}
                 size="lg"
                 variant="primary"
                 className="px-10 text-sm font-bold tracking-wider"
@@ -106,6 +107,7 @@ export function FinalCtaSection() {
         open={isModalOpen}
         onClose={closeModal}
         onConnected={handleConnected}
+        signInOnConnect
       />
     </section>
   );

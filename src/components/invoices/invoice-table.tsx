@@ -3,6 +3,11 @@
 import type { Invoice, InvoiceStatus } from "@/lib/invoices/types";
 import { formatSolExact } from "@/lib/solana/units";
 import { CheckIcon, ExternalLinkIcon } from "@/components/dashboard/icons";
+import { useConsolePreferences } from "@/components/providers/console-preferences-provider";
+import {
+  formatConsoleAmount,
+  formatConsoleDate,
+} from "@/lib/preferences/console-preferences";
 
 type InvoiceTableProps = {
   invoices: readonly Invoice[];
@@ -49,25 +54,6 @@ const STATUS_STYLES: Record<InvoiceStatus, StatusStyle> = {
   },
 };
 
-const dateFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeZone: "UTC",
-});
-
-function formatDate(value: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : dateFormatter.format(date);
-}
-
-function formatAmount(lamports: string): string {
-  try {
-    return formatSolExact(BigInt(lamports));
-  } catch {
-    return "—";
-  }
-}
-
 function StatusPill({ status }: { status: InvoiceStatus }) {
   const style = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
   const isPaid = status === "paid";
@@ -98,6 +84,20 @@ function StatusPill({ status }: { status: InvoiceStatus }) {
 }
 
 export default function InvoiceTable({ invoices, onView }: InvoiceTableProps) {
+  const { preferences } = useConsolePreferences();
+
+  function formatDate(value: string | null): string {
+    return formatConsoleDate(value, preferences);
+  }
+
+  function formatAmount(lamports: string): string {
+    try {
+      return formatConsoleAmount(formatSolExact(BigInt(lamports)), preferences);
+    } catch {
+      return "—";
+    }
+  }
+
   return (
     <>
       {/* Desktop table */}
