@@ -5,6 +5,11 @@ import type { PaymentRequest } from "@/lib/payment-requests/types";
 import { formatSolExact } from "@/lib/solana/units";
 import { getDevnetTransactionExplorerUrl } from "@/lib/solana/payment";
 import { shortenAddress } from "@/lib/solana/address";
+import { useConsolePreferences } from "@/components/providers/console-preferences-provider";
+import {
+  formatConsoleAmount,
+  formatConsoleDate,
+} from "@/lib/preferences/console-preferences";
 import {
   CloseIcon,
   ExternalLinkIcon,
@@ -55,23 +60,6 @@ const statusStyles: Record<
   },
 };
 
-const createdAtFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "long",
-  timeStyle: "long",
-  timeZone: "UTC",
-});
-
-function formatCreatedAt(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : createdAtFormatter.format(date);
-}
-
-function formatVerifiedAt(value: string | null): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : createdAtFormatter.format(date);
-}
-
 function isVerified(payment: PaymentRequest): boolean {
   return (
     payment.status === "paid" &&
@@ -86,6 +74,7 @@ export default function TransactionDetailsModal({
   onClose,
   onCancelled,
 }: TransactionDetailsModalProps) {
+  const { preferences } = useConsolePreferences();
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
 
@@ -412,7 +401,10 @@ export default function TransactionDetailsModal({
                   WebkitTextFillColor: "transparent",
                 }}
               >
-                {formatSolExact(BigInt(payment.amountLamports))}{" "}
+                {formatConsoleAmount(
+                  formatSolExact(BigInt(payment.amountLamports)),
+                  preferences,
+                )}{" "}
                 <span
                   className="text-sm font-normal"
                   style={{ background: "none", WebkitTextFillColor: "rgba(255,255,255,0.4)" }}
@@ -473,7 +465,9 @@ export default function TransactionDetailsModal({
                 Created
               </label>
               <p className="text-sm text-neutral-200">
-                {formatCreatedAt(payment.createdAt)}
+                {formatConsoleDate(payment.createdAt, preferences, {
+                  includeTime: true,
+                })}
               </p>
             </div>
 
@@ -483,7 +477,9 @@ export default function TransactionDetailsModal({
               </label>
               <p className="text-sm text-neutral-200">
                 {verified
-                  ? formatVerifiedAt(payment.verifiedAt)
+                  ? formatConsoleDate(payment.verifiedAt, preferences, {
+                      includeTime: true,
+                    })
                   : payment.status === "pending"
                     ? "Awaiting on-chain verification"
                     : "Not verified"}

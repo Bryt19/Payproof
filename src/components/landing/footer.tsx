@@ -93,9 +93,12 @@ export default function Footer() {
     if (href) router.push(href);
   }, [router]);
 
+  // The merchant session is created after a wallet connects, so a prefetch made
+  // while signed out must not cache the console's sign-in redirect.
   const renderProtectedLink = (href: string, label: string, chip?: boolean) => (
     <Link
       href={href}
+      prefetch={false}
       onClick={(e) => onProtectedClick(e, href)}
       className="inline-block py-1 text-sm text-white/70 hover:text-white transition-colors"
     >
@@ -218,6 +221,7 @@ export default function Footer() {
         open={connectOpen}
         onClose={() => setConnectOpen(false)}
         onConnected={handleConnected}
+        signInOnConnect
       />
     </footer>
   );

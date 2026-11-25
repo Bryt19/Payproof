@@ -4,6 +4,11 @@ import type { PaymentRequest } from "@/lib/payment-requests/types";
 import { shortenAddress } from "@/lib/solana/address";
 import { formatSolExact } from "@/lib/solana/units";
 import { getDevnetTransactionExplorerUrl } from "@/lib/solana/payment";
+import { useConsolePreferences } from "@/components/providers/console-preferences-provider";
+import {
+  formatConsoleAmount,
+  formatConsoleDate,
+} from "@/lib/preferences/console-preferences";
 import {
   CheckIcon,
   CloseIcon,
@@ -78,17 +83,6 @@ const statusStyles: Record<
   },
 };
 
-const createdAtFormatter = new Intl.DateTimeFormat("en-US", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "UTC",
-});
-
-function formatCreatedAt(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : createdAtFormatter.format(date);
-}
-
 function StatusPill({ status }: { status: PaymentRequest["status"] }) {
   const style = statusStyles[status] ?? statusStyles.pending;
 
@@ -128,6 +122,7 @@ export default function TransactionTable({
   onSelectPayment,
   filters,
 }: TransactionTableProps) {
+  const { preferences } = useConsolePreferences();
   const hasActiveFilters =
     filters.search.trim() !== "" || filters.status !== "all";
 
@@ -330,7 +325,10 @@ export default function TransactionTable({
 
                     <td className="whitespace-nowrap px-3 py-4 align-middle">
                       <div className="font-mono text-sm font-bold tracking-tight text-white">
-                        {formatSolExact(BigInt(payment.amountLamports))}
+                        {formatConsoleAmount(
+                          formatSolExact(BigInt(payment.amountLamports)),
+                          preferences,
+                        )}
                         <span className="ml-1 text-xs font-normal text-white/50">
                           SOL
                         </span>
@@ -356,7 +354,11 @@ export default function TransactionTable({
                     </td>
 
                     <td className="whitespace-nowrap px-3 py-4 align-middle text-white/50">
-                      {formatCreatedAt(payment.createdAt)}
+                      {
+                        formatConsoleDate(payment.createdAt, preferences, {
+                          includeTime: true,
+                        })
+                      }
                     </td>
 
                     <td className="py-4 pl-3 pr-6 align-middle text-right">
@@ -396,7 +398,11 @@ export default function TransactionTable({
                       {payment.reference.slice(0, 12)}…
                     </p>
                     <p className="font-mono text-[10px] text-white/40">
-                      {payment.id} · {formatCreatedAt(payment.createdAt)}
+                      {payment.id} · {
+                        formatConsoleDate(payment.createdAt, preferences, {
+                          includeTime: true,
+                        })
+                      }
                     </p>
                   </div>
                   <StatusPill status={payment.status} />

@@ -25,10 +25,10 @@ import type { DashboardStatId, DashboardSummary } from "@/lib/dashboard/summary"
 import type { PaymentRequest } from "@/lib/payment-requests/types";
 
 const statIconMap: Record<DashboardStatId, ReactNode> = {
-  "total-received": <ReceivedIcon className="size-4" />,
-  "successful-payments": <CheckedIcon className="size-4" />,
-  "pending-payments": <PendingIcon className="size-4" />,
-  "payment-requests": <RequestsStatIcon className="size-4" />,
+  "total-received": <ReceivedIcon className="size-3.5 sm:size-4" />,
+  "successful-payments": <CheckedIcon className="size-3.5 sm:size-4" />,
+  "pending-payments": <PendingIcon className="size-3.5 sm:size-4" />,
+  "payment-requests": <RequestsStatIcon className="size-3.5 sm:size-4" />,
   "total-verified-payments": <CheckedIcon className="size-4" />,
   "total-sol-received": <ReceivedIcon className="size-4" />,
   "successful-transactions": <CheckedIcon className="size-4" />,
@@ -196,7 +196,7 @@ export default function DashboardOverviewClient() {
           </div>
         ) : showLoading ? (
           <div className="space-y-4" aria-busy="true" aria-label="Loading dashboard">
-            <div className="kpi-grid grid gap-2.5 sm:gap-3 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
               {[1, 2, 3, 4].map((i) => (
                 <div
                   key={i}
@@ -212,7 +212,7 @@ export default function DashboardOverviewClient() {
               <h2 id="stats-heading" className="sr-only">
                 Key metrics
               </h2>
-              <div className="kpi-grid grid gap-2.5 sm:gap-3 xl:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
                 {state.data.stats.map((stat) => (
                   <StatCard
                     key={stat.id}

@@ -306,6 +306,31 @@ button {
   }
 }
 
+/* Compact table view (Settings → Appearance).
+   Overrides Tailwind padding utilities on transaction and invoice tables
+   without touching their markup. */
+html[data-compact="true"] table th,
+html[data-compact="true"] table td {
+  padding-top: 0.375rem !important;
+  padding-bottom: 0.375rem !important;
+}
+
+/* Reduced motion (Settings → Appearance). Mirrors the OS-level preference
+   below and also removes the decorative background glows. */
+html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+html[data-reduce-motion="true"] .section-glow-purple,
+html[data-reduce-motion="true"] .section-glow-teal {
+  display: none;
+}
+
 /* Dashboard Row Highlight (realtime update flash) */
 @keyframes payproof-row-highlight {
   0% { background: rgba(20,241,149,0.12); }

@@ -6,6 +6,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: "sm" | "md" | "lg";
   href?: string;
   isExternal?: boolean;
+  /** Set false when the destination's auth state can change after mount. */
+  prefetch?: boolean;
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -15,6 +17,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       size = "md",
       href,
       isExternal = false,
+      prefetch,
       className = "",
       children,
       ...props
@@ -57,7 +60,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         );
       }
       return (
-        <Link href={href} className={combinedClasses}>
+        <Link href={href} prefetch={prefetch} className={combinedClasses}>
           {children}
         </Link>
       );

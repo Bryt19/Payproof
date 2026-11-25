@@ -1,23 +1,42 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
+import { useMerchantSignIn } from "@/lib/auth/use-merchant-sign-in";
 import { wallet } from "@content/payproof";
 
 export function WalletConnectModal({
   open,
   onClose,
   onConnected,
+  signInOnConnect = false,
 }: {
   open: boolean;
   onClose: () => void;
   onConnected: () => void;
+  /**
+   * Sign the existing merchant challenge once after connecting, so console
+   * routes recognise the wallet without asking for another connection.
+   */
+  signInOnConnect?: boolean;
 }) {
-  const { status, wallets, isConnecting, error, connect, retry } =
+  const { status, address, wallets, isConnecting, error, connect, retry } =
     useWalletAuth();
+  const {
+    signIn,
+    phase: signInPhase,
+    isSigningIn,
+    failure: signInFailure,
+    reset: resetSignIn,
+  } = useMerchantSignIn();
 
   const awaitingConnect = useRef(false);
   const hasCompleted = useRef(false);
+
+  const handleClose = useCallback(() => {
+    resetSignIn();
+    onClose();
+  }, [onClose, resetSignIn]);
 
   // Reset the guards each time the dialog opens so a later session can also
   // continue into the payment flow.
@@ -27,14 +46,34 @@ export function WalletConnectModal({
     hasCompleted.current = false;
   }, [open]);
 
+  const completeSignIn = useCallback(async () => {
+    if (!address) return;
+
+    const result = await signIn(address);
+
+    if (result.ok) {
+      onConnected();
+    }
+  }, [address, onConnected, signIn]);
+
   useEffect(() => {
     if (!open) return;
     if (status !== "connected" || !awaitingConnect.current) return;
     if (hasCompleted.current) return;
 
     hasCompleted.current = true;
-    onConnected();
-  }, [open, status, onConnected]);
+
+    if (!signInOnConnect) {
+      onConnected();
+      return;
+    }
+
+    // The wallet store flips to connected asynchronously. Defer the sign-in so
+    // its state updates never run synchronously inside this effect.
+    queueMicrotask(() => {
+      void completeSignIn();
+    });
+  }, [open, status, signInOnConnect, onConnected, completeSignIn]);
 
   const handleSelectWallet = (walletName: string) => {
     awaitingConnect.current = true;
@@ -45,7 +84,7 @@ export function WalletConnectModal({
     if (!open) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") handleClose();
     };
 
     const previousOverflow = document.body.style.overflow;
@@ -56,7 +95,7 @@ export function WalletConnectModal({
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open, onClose]);
+  }, [open, handleClose]);
 
   if (!open) return null;
 
@@ -71,7 +110,7 @@ export function WalletConnectModal({
         type="button"
         aria-label={wallet.modal.close}
         tabIndex={-1}
-        onClick={onClose}
+        onClick={handleClose}
         className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
       />
 
@@ -91,7 +130,7 @@ export function WalletConnectModal({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="flex size-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 transition-colors hover:bg-white/[0.08] hover:text-white focus-visible:outline-2 focus-visible:outline-[#9945FF]"
           >
             <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
@@ -109,6 +148,54 @@ export function WalletConnectModal({
               <p className="pt-1 text-[11px] text-white/40">
                 {wallet.modal.checking}
               </p>
+            </div>
+          ) : signInOnConnect &&
+            status === "connected" &&
+            (isSigningIn || signInFailure) ? (
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">
+              {signInFailure ? (
+                <>
+                  <p className="text-sm font-medium text-white/85">
+                    Wallet connected, but sign-in did not finish.
+                  </p>
+                  <p role="alert" className="mt-1 text-xs leading-relaxed text-red-200/90">
+                    {signInFailure.message}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void completeSignIn()}
+                    className="mt-3 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-accent-ink hover:bg-accent/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    Try signing in again
+                  </button>
+                  <p className="mt-2 text-[11px] leading-relaxed text-white/40">
+                    Signing proves you own this wallet. No transaction is sent
+                    and no SOL is spent.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2.5">
+                    <span className="payproof-spinner" aria-hidden="true" />
+                    <p
+                      role="status"
+                      aria-live="polite"
+                      className="text-sm font-medium text-white/85"
+                    >
+                      {signInPhase === "signing"
+                        ? "Confirm the signature in your wallet…"
+                        : signInPhase === "verifying"
+                          ? "Verifying your wallet…"
+                          : "Signing you in…"}
+                    </p>
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-white/45">
+                    {isSigningIn
+                      ? "One signature proves you own this wallet. It is free — no transaction is sent."
+                      : "Connected. Preparing your sign-in…"}
+                  </p>
+                </>
+              )}
             </div>
           ) : wallets.length === 0 ? (
             <div role="status" className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4">

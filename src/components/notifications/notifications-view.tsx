@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardShell from "@/components/dashboard/dashboard-shell";
 import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
+import { useConsolePreferences } from "@/components/providers/console-preferences-provider";
+import { filterEnabledNotifications } from "@/lib/preferences/console-preferences";
 import { getBrowserSupabaseClient } from "@/lib/notifications/client";
 import type { NotificationFilter, NotificationRecord, NotificationType } from "@/lib/notifications/types";
 import {
@@ -32,7 +34,7 @@ export default function NotificationsView() {
   const [state, setState] = useState<LoadState>("loading");
   const [error, setError] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<readonly NotificationRecord[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { preferences } = useConsolePreferences();
   const [filter, setFilter] = useState<NotificationFilter>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | NotificationType>("all");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -42,7 +44,6 @@ export default function NotificationsView() {
     async (quiet?: boolean) => {
       if (!merchant) {
         setNotifications([]);
-        setUnreadCount(0);
         setState("ready");
         return;
       }
@@ -66,7 +67,6 @@ export default function NotificationsView() {
         };
         if (!res.ok) throw new Error(json.error || "Could not load notifications.");
         setNotifications(Array.isArray(json.notifications) ? json.notifications : []);
-        setUnreadCount(typeof json.unreadCount === "number" ? json.unreadCount : 0);
         setState("ready");
       } catch (cause) {
         setState("error");
@@ -108,11 +108,9 @@ export default function NotificationsView() {
   const markRead = useCallback(
     async (id: string) => {
       if (!merchant) return;
-      const wasUnread = notifications.some((n) => n.id === id && !n.isRead);
       setNotifications((prev) =>
         prev.map((n) => (n.id === id ? { ...n, isRead: true, readAt: n.readAt ?? new Date().toISOString() } : n)),
       );
-      if (wasUnread) setUnreadCount((prev) => Math.max(0, prev - 1));
       try {
         await fetch(`/api/notifications/${encodeURIComponent(id)}?merchantAddress=${encodeURIComponent(merchant)}`, {
           method: "PATCH",
@@ -121,14 +119,13 @@ export default function NotificationsView() {
         // reconcile on refetch
       }
     },
-    [merchant, notifications],
+    [merchant],
   );
 
   const markAllRead = useCallback(async () => {
-    if (!merchant || unreadCount === 0) return;
+    if (!merchant) return;
     const now = new Date().toISOString();
     setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, readAt: n.readAt ?? now })));
-    setUnreadCount(0);
     try {
       await fetch("/api/notifications/mark-all-read", {
         method: "POST",
@@ -138,7 +135,7 @@ export default function NotificationsView() {
     } catch {
       // best effort
     }
-  }, [merchant, unreadCount]);
+  }, [merchant]);
 
   const onOpenNotification = useCallback(
     async (notification: NotificationRecord) => {
@@ -148,11 +145,17 @@ export default function NotificationsView() {
     [markRead, router],
   );
 
+  // Categories hidden in Settings are removed from the feed and the counts.
+  const visibleNotifications = useMemo(
+    () => filterEnabledNotifications(notifications, preferences),
+    [notifications, preferences],
+  );
+
   const counts = useMemo(() => {
-    const unread = notifications.filter((n) => !n.isRead).length;
-    const read = notifications.length - unread;
-    return { all: notifications.length, unread, read };
-  }, [notifications]);
+    const unread = visibleNotifications.filter((n) => !n.isRead).length;
+    const read = visibleNotifications.length - unread;
+    return { all: visibleNotifications.length, unread, read };
+  }, [visibleNotifications]);
 
   return (
     <DashboardShell
@@ -166,7 +169,7 @@ export default function NotificationsView() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm text-white/70">
-              {unreadCount} unread total{realtimeActive ? " · live updates active" : " · refresh to sync if live updates are unavailable"}
+              {counts.unread} unread total{realtimeActive ? " · live updates active" : " · refresh to sync if live updates are unavailable"}
             </p>
             <p className="mt-1 text-xs text-white/40">
               Notifications are generated only from real application events and scoped to the connected wallet.
@@ -175,7 +178,7 @@ export default function NotificationsView() {
           <button
             type="button"
             onClick={() => void markAllRead()}
-            disabled={unreadCount === 0}
+            disabled={counts.unread === 0}
             className="rounded-xl border border-white/[0.1] bg-white/[0.03] px-3.5 py-2 text-xs font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             Mark all as read
@@ -227,18 +230,20 @@ export default function NotificationsView() {
               Retry
             </button>
           </div>
-        ) : notifications.length === 0 ? (
+        ) : visibleNotifications.length === 0 ? (
           <div className="rounded-2xl border border-white/[0.08] bg-[#0E0E12] px-6 py-14 text-center">
             <p className="text-sm font-semibold text-white">No notifications to show</p>
             <p className="mt-1 text-xs text-white/45">
               {filter !== "all" || typeFilter !== "all"
                 ? "Try adjusting your filters."
-                : "When you create requests or receive verified payments, they will appear here."}
+                : notifications.length > 0
+                  ? "Your notification preferences hide everything in this feed. Update them in Settings → Notifications."
+                  : "When you create requests or receive verified payments, they will appear here."}
             </p>
           </div>
         ) : (
           <ul className="overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0E0E12] divide-y divide-white/[0.06]">
-            {notifications.map((notification) => (
+            {visibleNotifications.map((notification) => (
               <li key={notification.id}>
                 <button
                   type="button"

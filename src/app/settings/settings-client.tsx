@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import {
   CopyableValue,
   RadioField,
@@ -18,50 +18,16 @@ import {
 import { TelegramIntegration } from "@/components/settings/telegram-integration";
 import { useWalletAuth } from "@/lib/wallet/use-wallet-auth";
 import { WalletConnectModal } from "@/components/landing/wallet-connect-modal";
+import { DisconnectWalletDialog } from "@/components/wallet-disconnect-dialog";
 import { SOLANA_NETWORK_NAME } from "@/lib/solana/config";
-
-const SETTINGS_STORAGE_KEY = "payproof_console_settings";
-
-export type PayproofSettings = {
-  // General
-  network: string;
-  currency: string;
-  timezone: string;
-  dateFormat: string;
-  numberFormat: string;
-
-  // Notifications
-  notifications: Record<string, boolean>;
-
-  // Appearance
-  theme: string;
-  compactMode: boolean;
-  reduceMotion: boolean;
-
-  // Security
-  autoVerifyOnchain: boolean;
-  maskWalletAddress: boolean;
-};
-
-const DEFAULT_SETTINGS: PayproofSettings = {
-  network: "devnet",
-  currency: "sol",
-  timezone: "Africa/Lagos",
-  dateFormat: "eu",
-  numberFormat: "dot",
-  notifications: {
-    "payment-received": true,
-    "payment-request-update": true,
-    "invoice-status": true,
-    "failed-transaction": true,
-    security: true,
-  },
-  theme: "dark",
-  compactMode: false,
-  reduceMotion: false,
-  autoVerifyOnchain: true,
-  maskWalletAddress: false,
-};
+import {
+  useConsolePreferences,
+} from "@/components/providers/console-preferences-provider";
+import type {
+  DateFormat,
+  NotificationPreferenceKey,
+  NumberFormat,
+} from "@/lib/preferences/console-preferences";
 
 type SectionId =
   | "general"
@@ -93,11 +59,11 @@ const SECTION_DESCRIPTIONS: Record<SectionId, string> = {
 };
 
 const CURRENCIES = [
-  { value: "sol", label: "Solana (SOL)", description: "On-chain settlement asset" },
-  { value: "usd", label: "United States Dollar (USD)", description: "Reference display currency" },
-  { value: "eur", label: "Euro (EUR)", description: "Reference display currency" },
-  { value: "gbp", label: "British Pound (GBP)", description: "Reference display currency" },
-  { value: "ngn", label: "Nigerian Naira (NGN)", description: "Reference display currency" },
+  {
+    value: "sol",
+    label: "Solana (SOL)",
+    description: "SOL only — fiat conversion is not available yet",
+  },
 ] as const;
 
 const TIMEZONES = [
@@ -127,37 +93,41 @@ const NUMBER_FORMATS = [
   { value: "space", label: "Space separator", description: "1 234.56" },
 ] as const;
 
-const NETWORKS = [
-  { value: "devnet", label: "Solana Devnet", description: "Live devnet verification environment" },
-] as const;
-
-const NOTIFICATION_ITEMS = [
+const NOTIFICATION_ITEMS: ReadonlyArray<{
+  key: NotificationPreferenceKey;
+  label: string;
+  description: string;
+}> = [
   {
-    key: "payment-received",
+    key: "paymentReceived",
     label: "Payment received",
-    description: "Instant notification when an on-chain payment is verified.",
+    description: "Show verified on-chain payments in the in-app notification feed.",
   },
   {
-    key: "payment-request-update",
+    key: "paymentRequestUpdates",
     label: "Payment request updates",
-    description: "Status changes, views, and expiration on your payment requests.",
+    description:
+      "Show new requests plus expiration and cancellation updates in the feed.",
   },
   {
-    key: "invoice-status",
-    label: "Invoice status updates",
-    description: "Issued client invoices transitioning between draft, sent, and paid.",
-  },
-  {
-    key: "failed-transaction",
+    key: "failedTransactions",
     label: "Failed transaction alerts",
-    description: "Alerts when an on-chain transaction attempts settlement but fails.",
-  },
-  {
-    key: "security",
-    label: "Security notifications",
-    description: "Important security and wallet disconnection notifications.",
+    description: "Show payment attempts that failed after repeated wallet rejections.",
   },
 ];
+
+const UNAVAILABLE_NOTIFICATION_ITEMS = [
+  {
+    label: "Invoice status updates",
+    description:
+      "Not available: PayProof does not generate invoice notifications yet. Invoices are shown on the Invoices page.",
+  },
+  {
+    label: "Security notifications",
+    description:
+      "Not available: this build has no security event notifications. Wallet connection is shown in Wallet settings.",
+  },
+] as const;
 
 const SECTIONS: readonly SectionId[] = [
   "general",
@@ -242,75 +212,39 @@ function ResourceLink({
 export default function SettingsClient() {
   const [active, setActive] = useState<SectionId>("general");
   const [search, setSearch] = useState("");
-  const [settings, setSettings] = useState<PayproofSettings>(() => {
-    if (typeof window === "undefined") return DEFAULT_SETTINGS;
-    try {
-      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
-      if (!stored) return DEFAULT_SETTINGS;
-      const parsed = JSON.parse(stored) as Partial<PayproofSettings>;
-      return {
-        ...DEFAULT_SETTINGS,
-        ...parsed,
-        notifications: {
-          ...DEFAULT_SETTINGS.notifications,
-          ...(parsed.notifications || {}),
-        },
-      };
-    } catch {
-      return DEFAULT_SETTINGS;
-    }
-  });
   const [isSavedNotice, setIsSavedNotice] = useState(false);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isDisconnectDialogOpen, setIsDisconnectDialogOpen] = useState(false);
 
-  const { isConnected, address, walletName, disconnect } = useWalletAuth();
+  const {
+    preferences,
+    updatePreferences,
+    setNotificationPreference,
+    resetPreferences,
+    savePreferences,
+  } = useConsolePreferences();
+  const { isConnected, address, walletName } = useWalletAuth();
 
-  // Save settings helper
-  const saveSettings = useCallback((newSettings: PayproofSettings) => {
-    setSettings(newSettings);
-    try {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(newSettings));
-      setIsSavedNotice(true);
-      setTimeout(() => setIsSavedNotice(false), 2500);
-    } catch {
-      // ignore
-    }
-  }, []);
+  function showSavedNotice() {
+    setIsSavedNotice(true);
+    setTimeout(() => setIsSavedNotice(false), 2500);
+  }
 
-  // Update a single setting
-  const updateSetting = useCallback(
-    <K extends keyof PayproofSettings>(key: K, value: PayproofSettings[K]) => {
-      setSettings((prev) => {
-        const next = { ...prev, [key]: value };
-        saveSettings(next);
-        return next;
-      });
-    },
-    [saveSettings]
-  );
+  /** Every visual preference applies immediately and persists to this browser. */
+  function applyPreference(patch: Parameters<typeof updatePreferences>[0]) {
+    updatePreferences(patch);
+    showSavedNotice();
+  }
 
-  // Update a notification toggle
-  const updateNotification = useCallback(
-    (key: string, value: boolean) => {
-      setSettings((prev) => {
-        const next = {
-          ...prev,
-          notifications: {
-            ...prev.notifications,
-            [key]: value,
-          },
-        };
-        saveSettings(next);
-        return next;
-      });
-    },
-    [saveSettings]
-  );
+  function resetDefaults() {
+    resetPreferences();
+    showSavedNotice();
+  }
 
-  // Reset all to default
-  const resetDefaults = useCallback(() => {
-    saveSettings(DEFAULT_SETTINGS);
-  }, [saveSettings]);
+  function saveAllPreferences() {
+    savePreferences();
+    showSavedNotice();
+  }
 
   const query = search.trim().toLowerCase();
   const filtered = query
@@ -355,7 +289,7 @@ export default function SettingsClient() {
           </button>
           <button
             type="button"
-            onClick={() => saveSettings(settings)}
+            onClick={saveAllPreferences}
             className="btn-brand-gradient inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-md transition-transform hover:scale-[1.02]"
           >
             <CheckIcon className="size-3.5" />
@@ -451,47 +385,63 @@ export default function SettingsClient() {
           {activeSection === "general" && (
             <SectionHeader id="general">
               <div className="space-y-6">
-                <div>
-                  <RadioField
-                    label="Default payment network"
-                    description="Solana blockchain network used by Payproof."
-                    value={settings.network}
-                    options={NETWORKS}
-                    onChange={(val) => updateSetting("network", val)}
-                  />
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                  <p
+                    className="text-sm font-medium text-white"
+                    style={{ fontFamily: "'DM Sans', sans-serif" }}
+                  >
+                    Default payment network
+                  </p>
+                  <p className="mt-0.5 text-xs text-neutral-400">
+                    Solana blockchain network used by Payproof.
+                  </p>
+                  <div className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[#9945FF]/25 bg-[#9945FF]/[0.06] px-3 py-1.5 text-xs font-medium text-white">
+                    <span className="size-1.5 rounded-full bg-[#14F195]" />
+                    {SOLANA_NETWORK_NAME}
+                  </div>
+                  <p className="mt-2 text-[11px] text-white/40">
+                    This build is configured for Devnet only. The network is
+                    determined by the server configuration and cannot be
+                    changed from the browser.
+                  </p>
                 </div>
 
                 <div className="grid gap-5 sm:grid-cols-2">
                   <SelectField
                     label="Preferred currency"
-                    description="Default display currency"
-                    value={settings.currency}
+                    description="Display currency"
+                    value={preferences.currency}
                     options={CURRENCIES}
-                    onChange={(val) => updateSetting("currency", val)}
+                    onChange={() => undefined}
+                    disabled
                   />
                   <SelectField
                     label="Timezone"
                     description="Timestamp localization"
-                    value={settings.timezone}
+                    value={preferences.timezone}
                     options={TIMEZONES}
-                    onChange={(val) => updateSetting("timezone", val)}
+                    onChange={(val) => applyPreference({ timezone: val })}
                   />
                 </div>
 
                 <div className="grid gap-5 sm:grid-cols-2">
                   <SelectField
                     label="Date format"
-                    description="How dates are shown"
-                    value={settings.dateFormat}
+                    description="Dates in the payments and invoices tables"
+                    value={preferences.dateFormat}
                     options={DATE_FORMATS}
-                    onChange={(val) => updateSetting("dateFormat", val)}
+                    onChange={(val) =>
+                      applyPreference({ dateFormat: val as DateFormat })
+                    }
                   />
                   <SelectField
                     label="Number format"
-                    description="Decimal & thousands separators"
-                    value={settings.numberFormat}
+                    description="Amount separators in the payments and invoices tables"
+                    value={preferences.numberFormat}
                     options={NUMBER_FORMATS}
-                    onChange={(val) => updateSetting("numberFormat", val)}
+                    onChange={(val) =>
+                      applyPreference({ numberFormat: val as NumberFormat })
+                    }
                   />
                 </div>
               </div>
@@ -534,7 +484,7 @@ export default function SettingsClient() {
                         type="button"
                         variant="outline"
                         size="md"
-                        onClick={disconnect}
+                        onClick={() => setIsDisconnectDialogOpen(true)}
                         className="border border-red-500/30 text-red-300 hover:bg-red-500/10 hover:text-red-200"
                       >
                         Disconnect Wallet
@@ -579,10 +529,47 @@ export default function SettingsClient() {
                     key={item.key}
                     label={item.label}
                     description={item.description}
-                    checked={Boolean(settings.notifications[item.key])}
-                    onChange={(checked) => updateNotification(item.key, checked)}
+                    checked={preferences.notifications[item.key]}
+                    onChange={(checked) => {
+                      setNotificationPreference(item.key, checked);
+                      showSavedNotice();
+                    }}
                   />
                 ))}
+
+                {UNAVAILABLE_NOTIFICATION_ITEMS.map((item) => (
+                  <div
+                    key={item.label}
+                    className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-white/70">
+                        {item.label}
+                      </p>
+                      <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/50">
+                        Not available
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-white/40">
+                      {item.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 text-xs text-white/50">
+                <p>
+                  These toggles control the in-app notification feed in this
+                  browser only. They do not change Telegram delivery, which is
+                  stored server-side and configured separately.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setActive("telegram")}
+                  className="mt-2 font-medium text-[#14F195] underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-[#9945FF]"
+                >
+                  Open Telegram notification settings
+                </button>
               </div>
             </SectionHeader>
           )}
@@ -600,7 +587,7 @@ export default function SettingsClient() {
                   <RadioField
                     label="Theme Mode"
                     description="Visual display theme."
-                    value={settings.theme}
+                    value={preferences.theme}
                     options={[
                       {
                         value: "dark",
@@ -608,7 +595,7 @@ export default function SettingsClient() {
                         description: "Curated dark background with purple and emerald Solana accents",
                       },
                     ]}
-                    onChange={(val) => updateSetting("theme", val)}
+                    onChange={() => applyPreference({ theme: "dark" })}
                   />
                 </div>
 
@@ -616,15 +603,15 @@ export default function SettingsClient() {
                   <Toggle
                     label="Compact Table View"
                     description="Reduce padding on transaction and invoice data tables."
-                    checked={settings.compactMode}
-                    onChange={(val) => updateSetting("compactMode", val)}
+                    checked={preferences.compactMode}
+                    onChange={(val) => applyPreference({ compactMode: val })}
                   />
 
                   <Toggle
                     label="Reduce Motion"
                     description="Minimize decorative transitions and background gradient glows."
-                    checked={settings.reduceMotion}
-                    onChange={(val) => updateSetting("reduceMotion", val)}
+                    checked={preferences.reduceMotion}
+                    onChange={(val) => applyPreference({ reduceMotion: val })}
                   />
                 </div>
               </div>
@@ -649,19 +636,38 @@ export default function SettingsClient() {
                 </div>
 
                 <div className="space-y-3 pt-2">
-                  <Toggle
-                    label="Strict On-Chain Verification"
-                    description="Require Solana RPC consensus confirmation before displaying payment proofs."
-                    checked={settings.autoVerifyOnchain}
-                    onChange={(val) => updateSetting("autoVerifyOnchain", val)}
-                  />
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-white">
+                        Strict On-Chain Verification
+                      </p>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[#14F195]/30 bg-[#14F195]/10 px-2 py-0.5 text-[10px] font-medium text-[#14F195]">
+                        <CheckIcon className="size-3" />
+                        Always on
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-neutral-400">
+                      Payment status is only shown after the server verifies the
+                      transaction against Solana RPC. It cannot be relaxed from
+                      the browser.
+                    </p>
+                  </div>
 
-                  <Toggle
-                    label="Mask Wallet Addresses on Public Links"
-                    description="Shorten merchant addresses in shareable checkout preview cards."
-                    checked={settings.maskWalletAddress}
-                    onChange={(val) => updateSetting("maskWalletAddress", val)}
-                  />
+                  <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-medium text-white">
+                        Merchant Addresses on Checkout Links
+                      </p>
+                      <span className="rounded-full border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[10px] text-white/60">
+                        Always shortened
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-neutral-400">
+                      Checkout pages shorten the recipient address to its first
+                      and last characters. The full address cannot be hidden:
+                      customers need it to confirm where their payment goes.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
@@ -750,6 +756,12 @@ export default function SettingsClient() {
         open={isWalletModalOpen}
         onClose={() => setIsWalletModalOpen(false)}
         onConnected={() => setIsWalletModalOpen(false)}
+      />
+
+      {/* Wallet Disconnect Confirmation */}
+      <DisconnectWalletDialog
+        open={isDisconnectDialogOpen}
+        onClose={() => setIsDisconnectDialogOpen(false)}
       />
     </div>
   );
