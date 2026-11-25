@@ -16,6 +16,11 @@ import {
   type TestNotificationResult,
 } from "./lib/telegram-notify.js";
 import {
+  buildBalanceText,
+  fetchBalanceSnapshot,
+  type BalanceResult,
+} from "./lib/wallet-balance.js";
+import {
   buildPendingPaymentsText,
   buildReceiptText,
   buildRecentTransactionsText,
@@ -32,8 +37,9 @@ import {
 /**
  * Menu actions carried in inline-keyboard `callback_data`.
  *
- * Each value has exactly one handler below. Keep this list and the keyboard in
- * sync: the fallback handler reports any value that is not registered here.
+ * Each value has exactly one handler below. Connect and Unlink share a single
+ * menu slot and are mutually exclusive; Balance is only rendered for linked
+ * accounts, but its handler re-checks the link on every press.
  */
 export const MENU_ACTIONS = [
   "payment_summary",
@@ -43,6 +49,7 @@ export const MENU_ACTIONS = [
   "notifications",
   "settings",
   "account_status",
+  "balance",
   "unlink",
   "connect",
   "main_menu",
@@ -55,7 +62,8 @@ type AccountScopedAction =
   | "payment_summary"
   | "transactions"
   | "pending"
-  | "receipts";
+  | "receipts"
+  | "balance";
 
 /** Matches `/start link_<rawToken>`; capture group 1 is the raw token. */
 const LINK_PAYLOAD_PATTERN = /^\/start\s+link_([a-zA-Z0-9_-]+)$/;
@@ -97,6 +105,17 @@ export type HandlerDependencies = {
   sendTestNotification?: (
     merchantAddress: string
   ) => Promise<TestNotificationResult>;
+  /** Read-only balance reader; defaults to the Solana RPC module. */
+  walletBalance?: (merchantAddress: string) => Promise<BalanceResult>;
+  /** Clock injection for the /balance cooldown; defaults to Date.now. */
+  now?: () => number;
+  /** Linking-token redemption; defaults to the Supabase RPC. */
+  redeemTelegramLink?: (input: {
+    tokenHash: string;
+    telegramUserId: number;
+    telegramChatId: number;
+    telegramUsername: string | null;
+  }) => Promise<TelegramLinkRedeemResult>;
 };
 
 type TelegramLinkRow = {
@@ -194,6 +213,43 @@ export async function lookupActiveTelegramLink(
   }
 }
 
+/** Status string returned by the `redeem_telegram_token` SQL function. */
+export type TelegramLinkRedeemResult =
+  | { ok: true; status: string }
+  | { ok: false };
+
+/**
+ * Redeems a hashed linking token through the existing `redeem_telegram_token`
+ * RPC with the service-role client. The raw token and its hash never leave this
+ * function; callers only see the post-redeem status.
+ */
+async function redeemTelegramLinkToken(input: {
+  tokenHash: string;
+  telegramUserId: number;
+  telegramChatId: number;
+  telegramUsername: string | null;
+}): Promise<TelegramLinkRedeemResult> {
+  const supabase = createSupabaseClient();
+  const { data } = await supabase.rpc("redeem_telegram_token", {
+    p_token_hash: input.tokenHash,
+    p_telegram_user_id: input.telegramUserId,
+    p_telegram_chat_id: input.telegramChatId,
+    p_telegram_username: input.telegramUsername,
+  });
+
+  // Supabase returns an array of rows (the SQL function uses
+  // `return query select`), so take the first row.
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { status?: unknown }
+    | null
+    | undefined;
+  const status = row?.status;
+
+  console.log("[handlers] redeem_telegram_token status:", status);
+
+  return typeof status === "string" ? { ok: true, status } : { ok: false };
+}
+
 /**
  * Telegram delivery exists for a linked merchant, but any single event type
  * still depends on that merchant's saved preference.
@@ -205,6 +261,46 @@ export const MERCHANT_LOOKUP_FAILED_TEXT =
 
 export const DATA_UNAVAILABLE_TEXT =
   "Could not load your PayProof data right now. Please try again in a moment.";
+
+export const BALANCE_UNAVAILABLE_TEXT =
+  "Could not load your wallet balance right now. Please try again in a moment.";
+
+export const BALANCE_COOLDOWN_TEXT =
+  "Please wait a few seconds before checking your balance again.";
+
+/** Reply for commands or buttons used outside a private chat. */
+export const PRIVATE_CHAT_REQUIRED_TEXT = `🔒 Private chat required
+
+For your security, PayProof only shows merchant data in a private chat with this bot.
+
+Open a direct message with the bot and try again.`;
+
+/** Short callback toast for buttons pressed outside a private chat. */
+export const PRIVATE_CHAT_CALLBACK_TEXT = "Open a private chat with the bot.";
+
+/** Reply when the current chat is not the chat linked to the merchant account. */
+export const CHAT_NOT_LINKED_TEXT = `🔒 Unavailable in this chat
+
+This chat is not the one linked to your PayProof account. Use the private chat where you linked PayProof.`;
+
+/**
+ * Merchant data is served only in private chats. Telegram groups and
+ * supergroups are rejected before any handler can resolve an account.
+ */
+export function isPrivateChat(ctx: Pick<Context, "chat">): boolean {
+  return ctx.chat?.type === "private";
+}
+
+/** True only when the update comes from the chat stored on the active link. */
+export function isLinkedChat(
+  ctx: Pick<Context, "chat">,
+  link: ActiveTelegramLink
+): boolean {
+  return typeof ctx.chat?.id === "number" && ctx.chat.id === link.telegramChatId;
+}
+
+/** Throttle window for /balance; other commands are not throttled. */
+const BALANCE_COOLDOWN_MS = 5_000;
 
 export const RECEIPT_INVALID_TEXT =
   "That does not look like a PayProof payment reference. Check the reference and try again.";
@@ -255,6 +351,10 @@ Link your PayProof account from the app, then open /notifications again to choos
 
 Alerts follow server-side verification and are never triggered by a browser request.`;
 
+export const ALREADY_LINKED_TEXT = `⌁ Connect PayProof
+
+Your PayProof account is already linked to this chat. Use Unlink if you want to disconnect it.`;
+
 export const CONNECT_TEXT = `⌁ Connect PayProof
 
 1. Open the PayProof app and sign in with your merchant wallet.
@@ -300,8 +400,16 @@ function verifiedDate(payment: StoredPayment): string {
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : "";
 }
 
-export function mainMenuKeyboard(): InlineKeyboard {
-  return new InlineKeyboard()
+/**
+ * Dashboard keyboard for the caller's current linking state.
+ *
+ * Connect and Unlink share one slot so exactly one can ever be shown, and the
+ * freed slot carries Balance for linked merchants. Unlinked chats get no
+ * Balance action at all; the balance handler checks the link again anyway, so a
+ * stale button cannot read a wallet.
+ */
+export function mainMenuKeyboard(linked: boolean): InlineKeyboard {
+  const keyboard = new InlineKeyboard()
     .text("📊 Payment Summary", "payment_summary")
     .text("🧾 Transactions", "transactions")
     .row()
@@ -312,10 +420,14 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .text("⚙️ Settings", "settings")
     .row()
     .text("🛡 Account Status", "account_status")
-    .text("🔓 Unlink", "unlink")
-    .row()
-    .text("⌁ Connect PayProof", "connect")
-    .text("❓ Help", "help");
+    .text(linked ? "🔓 Unlink" : "⌁ Connect PayProof", linked ? "unlink" : "connect")
+    .row();
+
+  if (linked) {
+    keyboard.text("💰 Balance", "balance");
+  }
+
+  return keyboard.text("❓ Help", "help");
 }
 
 function navKeyboard(refresh?: MenuAction): InlineKeyboard {
@@ -360,7 +472,7 @@ Dashboard
 • Pending payments — outstanding requests
 • Receipts — proof for a verified payment
 
-Commands: /summary /transactions /pending /receipt /status /settings /notifications /unlink /help
+Commands: /summary /balance /transactions /pending /receipt /status /settings /notifications /unlink /help
 
 Choose an option below to get started.`;
 
@@ -383,6 +495,11 @@ Link your PayProof account from the app, then try again.`,
   receipts: `🧾 Receipts
 
 No PayProof merchant account is linked to this chat, so no receipts can be looked up. A receipt is only issued for a verified payment in your PayProof account.
+
+Link your PayProof account from the app, then try again.`,
+  balance: `💰 Wallet balance
+
+No PayProof merchant account is linked to this chat, so there is no wallet balance to show.
 
 Link your PayProof account from the app, then try again.`,
 };
@@ -453,6 +570,7 @@ Commands
 /help — Show this message
 /status — Merchant connection and bot status
 /summary — Verified payment totals and counts
+/balance — View your wallet SOL balance
 /transactions — Recent payment requests, any status
 /pending — Outstanding payment requests
 /receipt — Pick a verified payment and view its receipt
@@ -474,7 +592,7 @@ No PayProof merchant account is linked to this chat.`;
 
 export const UNKNOWN_COMMAND_TEXT = `Sorry, I don't recognize that command yet.
 
-Available commands: /start, /help, /status, /summary, /transactions, /pending, /receipt, /unlink, /settings, /notifications.`;
+Available commands: /start, /help, /status, /summary, /balance, /transactions, /pending, /receipt, /unlink, /settings, /notifications.`;
 
 export const FALLBACK_TEXT = `PayProof Notify is waiting for your next command.
 
@@ -509,6 +627,48 @@ export function registerHandlers(
   const preferenceStore =
     deps.notificationPreferences ?? createNotificationPreferenceStore();
   const sendTest = deps.sendTestNotification ?? sendTestNotificationToMerchant;
+  const readBalance = deps.walletBalance ?? fetchBalanceSnapshot;
+  const now = deps.now ?? Date.now;
+  const redeemLink = deps.redeemTelegramLink ?? redeemTelegramLinkToken;
+  /** Last /balance request per Telegram user (in-memory, one bot process). */
+  const lastBalanceCheck = new Map<number, number>();
+
+  // Merchant data is private. Group and supergroup updates are rejected here,
+  // before any command or button handler can resolve a linked account.
+  bot.use(async (ctx, next) => {
+    const isCommand =
+      typeof ctx.message?.text === "string" && ctx.message.text.startsWith("/");
+    const isCallback = ctx.callbackQuery !== undefined;
+
+    if (!isCommand && !isCallback) {
+      await next();
+      return;
+    }
+
+    if (isPrivateChat(ctx)) {
+      await next();
+      return;
+    }
+
+    if (isCallback) {
+      await ctx.answerCallbackQuery({ text: PRIVATE_CHAT_CALLBACK_TEXT });
+    }
+
+    await ctx.reply(PRIVATE_CHAT_REQUIRED_TEXT);
+  });
+
+  /** Rejects a private chat that is not the one stored on the active link. */
+  async function ensureLinkedChat(
+    ctx: Context,
+    link: ActiveTelegramLink
+  ): Promise<boolean> {
+    if (isLinkedChat(ctx, link)) {
+      return true;
+    }
+
+    await ctx.reply(CHAT_NOT_LINKED_TEXT);
+    return false;
+  }
 
   /**
    * Resolves the merchant for the caller. Telegram user IDs are global per
@@ -525,6 +685,20 @@ export function registerHandlers(
     }
 
     return lookupTelegramLink(telegramUserId);
+  }
+
+  /**
+   * Renders the dashboard from the link stored in the database, never from the
+   * button that was pressed, so menus opened before linking or unlinking are
+   * corrected as soon as they are refreshed. A failed lookup renders the
+   * unlinked layout: it offers no wallet-scoped action, and every action checks
+   * the link again before reading anything.
+   */
+  async function menuKeyboardFor(
+    from: { id?: number } | undefined
+  ): Promise<InlineKeyboard> {
+    const merchant = await resolveMerchant(from);
+    return mainMenuKeyboard(merchant.state === "linked");
   }
 
   async function replyPaymentSummary(ctx: Context): Promise<void> {
@@ -544,6 +718,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const result = await data.getSummary(merchant.link.merchantAddress);
 
     if (!result.ok) {
@@ -557,6 +735,57 @@ export function registerHandlers(
       buildSummaryText(merchant.link.merchantAddress, result.data),
       { reply_markup: navKeyboard("payment_summary") }
     );
+  }
+
+  async function replyBalance(ctx: Context): Promise<void> {
+    const merchant = await resolveMerchant(ctx.from);
+
+    if (merchant.state === "not_linked") {
+      await ctx.reply(accountLinkingRequiredText("balance"), {
+        reply_markup: unlinkedKeyboard(),
+      });
+      return;
+    }
+
+    if (merchant.state === "unavailable") {
+      await ctx.reply(MERCHANT_LOOKUP_FAILED_TEXT, {
+        reply_markup: navKeyboard(),
+      });
+      return;
+    }
+
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
+    // /balance is the only command that calls an external RPC and a price
+    // endpoint, so it gets a per-user cooldown. The timestamp is recorded
+    // before the lookup, which also prevents hammering during an outage.
+    const nowMs = now();
+    const lastCheckedAt = lastBalanceCheck.get(merchant.link.telegramUserId);
+
+    if (
+      lastCheckedAt !== undefined &&
+      nowMs - lastCheckedAt < BALANCE_COOLDOWN_MS
+    ) {
+      await ctx.reply(BALANCE_COOLDOWN_TEXT, { reply_markup: navKeyboard() });
+      return;
+    }
+
+    lastBalanceCheck.set(merchant.link.telegramUserId, nowMs);
+
+    const result = await readBalance(merchant.link.merchantAddress);
+
+    if (!result.ok) {
+      await ctx.reply(BALANCE_UNAVAILABLE_TEXT, {
+        reply_markup: navKeyboard(),
+      });
+      return;
+    }
+
+    await ctx.reply(buildBalanceText(result.data), {
+      reply_markup: navKeyboard(),
+    });
   }
 
   async function replyTransactions(ctx: Context): Promise<void> {
@@ -573,6 +802,10 @@ export function registerHandlers(
       await ctx.reply(MERCHANT_LOOKUP_FAILED_TEXT, {
         reply_markup: navKeyboard("transactions"),
       });
+      return;
+    }
+
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
       return;
     }
 
@@ -610,6 +843,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const result = await data.getPending(merchant.link.merchantAddress, 5);
 
     if (!result.ok) {
@@ -638,6 +875,10 @@ export function registerHandlers(
       await ctx.reply(MERCHANT_LOOKUP_FAILED_TEXT, {
         reply_markup: navKeyboard("receipts"),
       });
+      return;
+    }
+
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
       return;
     }
 
@@ -700,6 +941,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const result = await data.getVerifiedReceipt(
       merchant.link.merchantAddress,
       reference
@@ -744,6 +989,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const preferences = await preferenceStore.getAll(
       merchant.link.merchantAddress
     );
@@ -770,6 +1019,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const preferences = await preferenceStore.getAll(
       merchant.link.merchantAddress
     );
@@ -783,6 +1036,10 @@ export function registerHandlers(
     const merchant = await resolveMerchant(ctx.from);
 
     if (merchant.state === "linked") {
+      if (!(await ensureLinkedChat(ctx, merchant.link))) {
+        return;
+      }
+
       await ctx.reply(buildLinkedStatusText(merchant.link), {
         reply_markup: navKeyboard("account_status"),
       });
@@ -821,6 +1078,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     await ctx.reply(UNLINK_CONFIRM_TEXT, { reply_markup: unlinkKeyboard() });
   }
 
@@ -838,6 +1099,13 @@ export function registerHandlers(
     const rawToken = parseLinkToken(text);
 
     if (rawToken) {
+      // Linking must happen in a private chat so the stored chat id can never be
+      // a group where merchant notifications would be broadcast.
+      if (message.chat?.type !== "private") {
+        await ctx.reply(PRIVATE_CHAT_REQUIRED_TEXT);
+        return;
+      }
+
       // Validate raw token format (32 bytes base64url = 43 chars).
       if (rawToken.length < 10 || rawToken.length > 50) {
         await ctx.reply(
@@ -871,32 +1139,23 @@ export function registerHandlers(
       }
 
       // Redeem server-side with the service-role client.
-      const supabase = createSupabaseClient();
-      let rpcResult = await supabase.rpc("redeem_telegram_token", {
-        p_token_hash: hash,
-        p_telegram_user_id: userId,
-        p_telegram_chat_id: chatId,
-        p_telegram_username: username,
+      const redeemed = await redeemLink({
+        tokenHash: hash,
+        telegramUserId: userId,
+        telegramChatId: chatId,
+        telegramUsername: username,
       });
 
-      // Normalize RPC result: Supabase returns an array of rows (the SQL
-      // function uses `return query select`), so take the first row.
-      rpcResult = Array.isArray(rpcResult.data)
-        ? rpcResult.data[0]
-        : rpcResult.data;
-
-      // Read status from the normalized result.
-      const status: any = rpcResult?.status;
-      console.log("[handlers] redeem_telegram_token status:", status);
-
-      // If no status, return generic failure
-      if (!status) {
+      // If the RPC reported no status, return the generic failure.
+      if (!redeemed.ok) {
         await ctx.reply(
           "Could not process the linking request. Please try again or generate a new token from the PayProof app.",
-          { reply_markup: mainMenuKeyboard() }
+          { reply_markup: await menuKeyboardFor(ctx.from) }
         );
         return;
       }
+
+      const status = redeemed.status;
 
       switch (status) {
         case "linked":
@@ -904,42 +1163,42 @@ export function registerHandlers(
           await ctx.reply(
             `Your PayProof account has been linked successfully!` +
               `\n\nWelcome back, @${username ?? "Guest"}!`,
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
           break;
 
         case "already_redeemed":
           await ctx.reply(
             "This Telegram account has already been linked to a PayProof merchant account.",
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
           break;
 
         case "expired_token":
           await ctx.reply(
             "The linking token has expired. Please generate a new token from the PayProof app.",
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
           break;
 
         case "revoked_token":
           await ctx.reply(
             "The linking token has been revoked. Please generate a new token from the PayProof app.",
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
           break;
 
         case "merchant_already_linked":
           await ctx.reply(
             "This merchant already has an active Telegram link. Please unlink the existing link before connecting another.",
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
           break;
 
         case "telegram_already_linked":
           await ctx.reply(
             "This Telegram user is already linked to a different merchant account.",
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
           break;
 
@@ -947,14 +1206,14 @@ export function registerHandlers(
         case "invalid_request":
           await ctx.reply(
             "The linking payload is invalid or has already been used. Please generate a new token from the PayProof app.",
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
           break;
 
         default:
           await ctx.reply(
             "Could not process the linking request. Please try again or generate a new token from the PayProof app.",
-            { reply_markup: mainMenuKeyboard() }
+            { reply_markup: await menuKeyboardFor(ctx.from) }
           );
       }
 
@@ -962,15 +1221,15 @@ export function registerHandlers(
     }
 
     // Regular /start without payload: show the merchant dashboard.
-    await ctx.reply(MAIN_MENU_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(MAIN_MENU_TEXT, { reply_markup: await menuKeyboardFor(ctx.from) });
   });
 
   bot.command("menu", async (ctx) => {
-    await ctx.reply(MAIN_MENU_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(MAIN_MENU_TEXT, { reply_markup: await menuKeyboardFor(ctx.from) });
   });
 
   bot.command("help", async (ctx) => {
-    await ctx.reply(HELP_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(HELP_TEXT, { reply_markup: await menuKeyboardFor(ctx.from) });
   });
 
   bot.command("status", async (ctx) => {
@@ -979,6 +1238,10 @@ export function registerHandlers(
 
   bot.command("summary", async (ctx) => {
     await replyPaymentSummary(ctx);
+  });
+
+  bot.command("balance", async (ctx) => {
+    await replyBalance(ctx);
   });
 
   bot.command("transactions", async (ctx) => {
@@ -1098,6 +1361,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const address = merchant.link.merchantAddress;
     const before = await preferenceStore.getAll(address);
     const nextEnabled = before[eventType] !== true;
@@ -1149,6 +1416,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const result = await sendTest(merchant.link.merchantAddress);
 
     if (result.ok) {
@@ -1181,6 +1452,10 @@ export function registerHandlers(
       return;
     }
 
+    if (!(await ensureLinkedChat(ctx, merchant.link))) {
+      return;
+    }
+
     const result = await unlinkAccount(merchant.link.telegramUserId);
 
     if (!result.ok) {
@@ -1201,23 +1476,53 @@ export function registerHandlers(
   bot.callbackQuery("unlink_cancel", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.reply(UNLINK_CANCELLED_TEXT, {
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: await menuKeyboardFor(ctx.from),
     });
+  });
+
+  bot.callbackQuery("balance", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    // replyBalance() re-checks the active link, so a stale Balance button on an
+    // unlinked chat gets linking guidance and never reaches the RPC or price API.
+    await replyBalance(ctx);
   });
 
   bot.callbackQuery("connect", async (ctx) => {
     await ctx.answerCallbackQuery();
+
+    const merchant = await resolveMerchant(ctx.from);
+
+    if (merchant.state === "unavailable") {
+      await ctx.reply(MERCHANT_LOOKUP_FAILED_TEXT, {
+        reply_markup: mainMenuKeyboard(false),
+      });
+      return;
+    }
+
+    if (merchant.state === "linked") {
+      if (!(await ensureLinkedChat(ctx, merchant.link))) {
+        return;
+      }
+
+      // The button was rendered before this chat was linked; it is no longer a
+      // valid action, so show the current menu instead of a linking guide.
+      await ctx.reply(ALREADY_LINKED_TEXT, {
+        reply_markup: mainMenuKeyboard(true),
+      });
+      return;
+    }
+
     await replyConnect(ctx);
   });
 
   bot.callbackQuery("help", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.reply(HELP_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(HELP_TEXT, { reply_markup: await menuKeyboardFor(ctx.from) });
   });
 
   bot.callbackQuery("main_menu", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.reply(MAIN_MENU_TEXT, { reply_markup: mainMenuKeyboard() });
+    await ctx.reply(MAIN_MENU_TEXT, { reply_markup: await menuKeyboardFor(ctx.from) });
   });
 
   // -------------------------------------------------------------------------

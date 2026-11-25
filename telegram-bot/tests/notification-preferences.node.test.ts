@@ -243,9 +243,11 @@ test("keyboard carries a toggle per event plus the explicit test action", () => 
   assert.ok(markup.includes('"main_menu"'));
 });
 
-test("the dashboard keyboard still lists every menu action", () => {
-  const markup = JSON.stringify(mainMenuKeyboard());
-  const actions: MenuAction[] = [
+test("the dashboard keyboard lists every menu action for its linking state", () => {
+  const linkedMarkup = JSON.stringify(mainMenuKeyboard(true));
+  const unlinkedMarkup = JSON.stringify(mainMenuKeyboard(false));
+
+  const shared: MenuAction[] = [
     "payment_summary",
     "transactions",
     "pending",
@@ -253,12 +255,24 @@ test("the dashboard keyboard still lists every menu action", () => {
     "notifications",
     "settings",
     "account_status",
-    "unlink",
-    "connect",
   ];
-  for (const action of actions) {
-    assert.ok(markup.includes(`"${action}"`), `missing ${action}`);
+
+  for (const action of shared) {
+    assert.ok(linkedMarkup.includes(`"${action}"`), `missing ${action} for linked`);
+    assert.ok(unlinkedMarkup.includes(`"${action}"`), `missing ${action} for unlinked`);
   }
+
+  assert.ok(linkedMarkup.includes('"help"'), "linked dashboard must offer Help");
+  assert.ok(unlinkedMarkup.includes('"help"'), "unlinked dashboard must offer Help");
+
+  // Connect and Unlink share a slot; Balance only exists for linked merchants.
+  assert.ok(unlinkedMarkup.includes('"connect"'), "unlinked must offer Connect");
+  assert.ok(!unlinkedMarkup.includes('"unlink"'), "unlinked must not offer Unlink");
+  assert.ok(!unlinkedMarkup.includes('"balance"'), "unlinked must not offer Balance");
+
+  assert.ok(linkedMarkup.includes('"unlink"'), "linked must offer Unlink");
+  assert.ok(linkedMarkup.includes('"balance"'), "linked must offer Balance");
+  assert.ok(!linkedMarkup.includes('"connect"'), "linked must not offer Connect");
 });
 
 // ---------------------------------------------------------------------------

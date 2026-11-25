@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsx --test tests/handlers.node.test.ts tests/notification-preferences.node.test.ts tests/balance.node.test.ts",
     "dev": "tsx watch src/bot.ts",
     "build": "tsc",
     "start": "node dist/bot.js"
@@ -13,13 +13,17 @@
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "@types/node": "^26.6.6",
     "dotenv": "^18.0.10",
-    "grammy": "^1.46.0"
+    "grammy": "^1.46.0",
+    "typescript": "^7.0.2"
   },
   "devDependencies": {
-    "@types/node": "^26.6.6",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "tsx": "^4.23.15"
   }
 }

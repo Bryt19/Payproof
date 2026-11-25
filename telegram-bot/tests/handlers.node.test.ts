@@ -5,6 +5,8 @@ import { Bot, type Transformer } from "grammy";
 import type { Update } from "grammy/types";
 
 import {
+  ALREADY_LINKED_TEXT,
+  CHAT_NOT_LINKED_TEXT,
   CONNECT_TEXT,
   DATA_UNAVAILABLE_TEXT,
   FALLBACK_TEXT,
@@ -14,6 +16,8 @@ import {
   MERCHANT_LOOKUP_FAILED_TEXT,
   NON_TEXT_MESSAGE_TEXT,
   NOTIFICATIONS_TEXT,
+  PRIVATE_CHAT_CALLBACK_TEXT,
+  PRIVATE_CHAT_REQUIRED_TEXT,
   RECEIPT_INVALID_TEXT,
   RECEIPT_NOT_FOUND_TEXT,
   RECEIPT_PICKER_EMPTY_TEXT,
@@ -176,7 +180,15 @@ function memoryPreferenceStore(
   };
 }
 
-function callbackUpdate(data?: string): Update {
+type TestChat = { id: number; type: "private" | "group" | "supergroup" };
+const PRIVATE_CHAT: TestChat = { id: CHAT_ID, type: "private" };
+const GROUP_CHAT: TestChat = { id: -100200300, type: "supergroup" };
+const OTHER_PRIVATE_CHAT: TestChat = { id: 777, type: "private" };
+
+function callbackUpdate(
+  data?: string,
+  chat: TestChat = PRIVATE_CHAT,
+): Update {
   return {
     update_id: 1,
     callback_query: {
@@ -186,7 +198,7 @@ function callbackUpdate(data?: string): Update {
       message: {
         message_id: 10,
         date: 0,
-        chat: { id: CHAT_ID, type: "private" },
+        chat: { ...chat },
         text: "menu",
       },
       ...(data === undefined ? {} : { data }),
@@ -194,14 +206,14 @@ function callbackUpdate(data?: string): Update {
   } as unknown as Update;
 }
 
-function textUpdate(text: string): Update {
+function textUpdate(text: string, chat: TestChat = PRIVATE_CHAT): Update {
   const commandLength = text.startsWith("/") ? text.split(/\s/)[0].length : 0;
   return {
     update_id: 2,
     message: {
       message_id: 20,
       date: 0,
-      chat: { id: CHAT_ID, type: "private" },
+      chat: { ...chat },
       from: FROM,
       text,
       ...(commandLength > 0
@@ -352,7 +364,7 @@ for (const [action, expected] of BUTTONS) {
   });
 }
 
-test("dashboard exposes every advertised action and a connect button", async () => {
+test("unlinked dashboard offers Connect but never Unlink or Balance", async () => {
   const { bot, calls } = createHarness();
   await deliver(bot, textUpdate("/start"));
 
@@ -361,11 +373,77 @@ test("dashboard exposes every advertised action and a connect button", async () 
   assert.equal(messageText(messages[0]), MAIN_MENU_TEXT);
 
   const markup = replyMarkup(messages[0]);
-  for (const action of MENU_ACTIONS) {
-    if (action === "main_menu") continue;
+  assert.ok(markup.includes('"connect"'), "dashboard must offer connecting PayProof");
+  assert.ok(!markup.includes('"unlink"'), "unlinked chat must not offer Unlink");
+  assert.ok(!markup.includes('"balance"'), "unlinked chat must not offer Balance");
+
+  for (const action of [
+    "payment_summary",
+    "transactions",
+    "pending",
+    "receipts",
+    "notifications",
+    "settings",
+    "account_status",
+    "help",
+  ]) {
     assert.ok(markup.includes(`"${action}"`), `dashboard is missing ${action}`);
   }
-  assert.ok(markup.includes('"connect"'), "dashboard must offer connecting PayProof");
+});
+
+test("linked dashboard offers Unlink and Balance but never Connect", async () => {
+  const { bot, calls } = linkedHarness(fakeData());
+  await deliver(bot, textUpdate("/start"));
+
+  const markup = replyMarkup(firstReply(calls));
+  assert.ok(markup.includes('"unlink"'), "linked chat must offer Unlink");
+  assert.ok(markup.includes('"balance"'), "linked chat must offer Balance");
+  assert.ok(!markup.includes('"connect"'), "linked chat must not offer Connect");
+});
+
+test("a stale Connect button on a linked account is handled safely", async () => {
+  const { bot, calls } = linkedHarness(fakeData());
+  await deliver(bot, callbackUpdate("connect"));
+
+  const reply = firstReply(calls);
+  assert.equal(messageText(reply), ALREADY_LINKED_TEXT);
+
+  const markup = replyMarkup(reply);
+  assert.ok(markup.includes('"unlink"'));
+  assert.ok(markup.includes('"balance"'));
+  assert.ok(!markup.includes('"connect"'));
+});
+
+test("a stale Unlink button on an unlinked account is handled safely", async () => {
+  const { bot, calls } = createHarness();
+  await deliver(bot, callbackUpdate("unlink"));
+
+  const reply = firstReply(calls);
+  assert.equal(messageText(reply), UNLINK_NONE_TEXT);
+  assert.ok(replyMarkup(reply).includes('"connect"'));
+  assert.ok(!replyMarkup(reply).includes('"balance"'));
+});
+
+test("a menu opened before linking shows linked actions once refreshed", async () => {
+  let linked = false;
+  const { bot, calls } = createHarness({
+    lookupTelegramLink: async () =>
+      linked ? { state: "linked", link: ACTIVE_LINK } : { state: "not_linked" },
+  });
+
+  await deliver(bot, textUpdate("/start"));
+  const before = replyMarkup(firstReply(calls));
+  assert.ok(before.includes('"connect"'));
+  assert.ok(!before.includes('"balance"'));
+
+  // The linking flow wrote the active row; the old menu must not stay stale.
+  linked = true;
+  await deliver(bot, callbackUpdate("main_menu"));
+
+  const after = replyMarkup(callsOf(calls, "sendMessage").at(-1)!);
+  assert.ok(after.includes('"unlink"'));
+  assert.ok(after.includes('"balance"'));
+  assert.ok(!after.includes('"connect"'));
 });
 
 test("every menu action has a dedicated registered handler", async () => {
@@ -999,11 +1077,14 @@ test("/unlink asks for confirmation and does not write yet", async () => {
 
 test("unlink confirmation disconnects the linked Telegram identity", async () => {
   let unlinkedUser: number | null = null;
+  let linked = true;
   const { bot, calls } = createHarness({
-    lookupTelegramLink: async () => ({ state: "linked", link: ACTIVE_LINK }),
+    lookupTelegramLink: async () =>
+      linked ? { state: "linked", link: ACTIVE_LINK } : { state: "not_linked" },
     data: fakeData(),
     unlinkTelegramAccount: async (telegramUserId) => {
       unlinkedUser = telegramUserId;
+      linked = false;
       return { ok: true, data: true };
     },
   });
@@ -1014,7 +1095,11 @@ test("unlink confirmation disconnects the linked Telegram identity", async () =>
   assert.equal(unlinkedUser, FROM.id, "unlink must target the resolved Telegram user");
   assert.equal(messageText(reply), UNLINK_SUCCESS_TEXT);
   assert.match(messageText(reply), /Payment history and merchant records were not changed/);
-  assert.ok(replyMarkup(reply).includes('"connect"'), "must offer re-linking");
+
+  const markup = replyMarkup(reply);
+  assert.ok(markup.includes('"connect"'), "must offer re-linking");
+  assert.ok(!markup.includes('"unlink"'), "unlink must disappear after unlinking");
+  assert.ok(!markup.includes('"balance"'), "balance must disappear after unlinking");
 });
 
 test("unlink cancellation keeps the account linked", async () => {
@@ -1156,6 +1241,57 @@ test("linking payload yields the raw token without the link_ prefix", () => {
   assert.equal(sha256(parsed), sha256(rawToken), "hashes must match PayProof's");
 });
 
+test("successful linking refreshes the menu with Unlink and Balance", async () => {
+  const rawToken = randomBytes(32).toString("base64url");
+  let linked = false;
+  let redeemedHash: string | null = null;
+
+  const { bot, calls } = createHarness({
+    lookupTelegramLink: async () =>
+      linked ? { state: "linked", link: ACTIVE_LINK } : { state: "not_linked" },
+    redeemTelegramLink: async (input) => {
+      redeemedHash = input.tokenHash;
+      linked = true;
+      return { ok: true, status: "linked" };
+    },
+  });
+
+  await deliver(bot, textUpdate(`/start link_${rawToken}`));
+
+  assert.equal(
+    redeemedHash,
+    sha256(rawToken),
+    "the raw token is hashed, never the link_ prefix",
+  );
+
+  const reply = firstReply(calls);
+  assert.match(messageText(reply), /linked successfully/i);
+
+  const markup = replyMarkup(reply);
+  assert.ok(markup.includes('"unlink"'), "linked menu must offer Unlink");
+  assert.ok(markup.includes('"balance"'), "linked menu must offer Balance");
+  assert.ok(!markup.includes('"connect"'), "linked menu must not offer Connect");
+});
+
+test("failed linking keeps the unlinked menu with Connect and no Balance", async () => {
+  const { bot, calls } = createHarness({
+    redeemTelegramLink: async () => ({ ok: true, status: "expired_token" }),
+  });
+
+  await deliver(
+    bot,
+    textUpdate(`/start link_${randomBytes(32).toString("base64url")}`),
+  );
+
+  const reply = firstReply(calls);
+  assert.match(messageText(reply), /expired/i);
+
+  const markup = replyMarkup(reply);
+  assert.ok(markup.includes('"connect"'));
+  assert.ok(!markup.includes('"unlink"'));
+  assert.ok(!markup.includes('"balance"'));
+});
+
 test("linking payload keeps base64url '-' and '_' characters", () => {
   const rawToken = "ab-_CD_ef-12";
   assert.equal(parseLinkToken(`/start link_${rawToken}`), rawToken);
@@ -1188,5 +1324,157 @@ test("/start without a linking payload still shows the dashboard", async () => {
   const messages = callsOf(calls, "sendMessage");
   assert.equal(messages.length, 1);
   assert.equal(messageText(messages[0]), MAIN_MENU_TEXT);
+});
+
+// ---------------------------------------------------------------------------
+// Private-chat enforcement
+// ---------------------------------------------------------------------------
+
+test("group chats cannot read merchant data through commands", async () => {
+  let summaryCalls = 0;
+  const { bot, calls } = linkedHarness(
+    fakeData({
+      getSummary: async () => {
+        summaryCalls += 1;
+        return {
+          ok: true,
+          data: {
+            verifiedCount: 0,
+            verifiedLamports: 0n,
+            pendingCount: 0,
+            failedCount: 0,
+          },
+        };
+      },
+    }),
+  );
+
+  await deliver(bot, textUpdate("/summary", GROUP_CHAT));
+
+  assert.equal(summaryCalls, 0);
+  const messages = callsOf(calls, "sendMessage");
+  assert.equal(messages.length, 1);
+  assert.equal(messageText(messages[0]), PRIVATE_CHAT_REQUIRED_TEXT);
+});
+
+test("group chats cannot read merchant data through menu buttons", async () => {
+  let summaryCalls = 0;
+  const { bot, calls } = linkedHarness(
+    fakeData({
+      getSummary: async () => {
+        summaryCalls += 1;
+        return {
+          ok: true,
+          data: {
+            verifiedCount: 0,
+            verifiedLamports: 0n,
+            pendingCount: 0,
+            failedCount: 0,
+          },
+        };
+      },
+    }),
+  );
+
+  await deliver(bot, callbackUpdate("payment_summary", GROUP_CHAT));
+
+  assert.equal(summaryCalls, 0);
+  const answers = callsOf(calls, "answerCallbackQuery");
+  assert.equal(answers.length, 1);
+  assert.equal(answers[0].payload.text, PRIVATE_CHAT_CALLBACK_TEXT);
+  assert.equal(messageText(firstReply(calls)), PRIVATE_CHAT_REQUIRED_TEXT);
+});
+
+test("a private chat other than the linked chat is rejected", async () => {
+  let summaryCalls = 0;
+  const { bot, calls } = linkedHarness(
+    fakeData({
+      getSummary: async () => {
+        summaryCalls += 1;
+        return {
+          ok: true,
+          data: {
+            verifiedCount: 0,
+            verifiedLamports: 0n,
+            pendingCount: 0,
+            failedCount: 0,
+          },
+        };
+      },
+    }),
+  );
+
+  await deliver(bot, textUpdate("/summary", OTHER_PRIVATE_CHAT));
+  await deliver(bot, callbackUpdate("connect", OTHER_PRIVATE_CHAT));
+
+  assert.equal(summaryCalls, 0);
+  const messages = callsOf(calls, "sendMessage");
+  assert.equal(messages.length, 2);
+  assert.ok(
+    messages.every((message) => messageText(message) === CHAT_NOT_LINKED_TEXT),
+  );
+});
+
+test("group chats cannot use settings, receipts, preferences or unlink", async () => {
+  let unlinkCalls = 0;
+  let testSends = 0;
+  const store = memoryPreferenceStore();
+  const { bot, calls } = createHarness({
+    lookupTelegramLink: async () => ({ state: "linked", link: ACTIVE_LINK }),
+    unlinkTelegramAccount: async () => {
+      unlinkCalls += 1;
+      return { ok: true, data: true };
+    },
+    notificationPreferences: store,
+    sendTestNotification: async () => {
+      testSends += 1;
+      return { ok: true };
+    },
+  });
+
+  await deliver(bot, callbackUpdate("settings", GROUP_CHAT));
+  await deliver(bot, callbackUpdate("notifications", GROUP_CHAT));
+  await deliver(bot, callbackUpdate("receipts", GROUP_CHAT));
+  await deliver(bot, callbackUpdate("unlink_confirm", GROUP_CHAT));
+  await deliver(
+    bot,
+    callbackUpdate("notif_toggle:payment_received", GROUP_CHAT),
+  );
+  await deliver(bot, callbackUpdate(NOTIF_TEST_ACTION, GROUP_CHAT));
+
+  assert.equal(unlinkCalls, 0);
+  assert.equal(store.writes.length, 0);
+  assert.equal(testSends, 0);
+  assert.ok(
+    callsOf(calls, "sendMessage").every(
+      (call) => messageText(call) === PRIVATE_CHAT_REQUIRED_TEXT,
+    ),
+  );
+});
+
+test("linking payloads are rejected outside private chats", async () => {
+  let redeemCalls = 0;
+  const { bot, calls } = createHarness({
+    redeemTelegramLink: async () => {
+      redeemCalls += 1;
+      return { ok: true, status: "linked" };
+    },
+  });
+
+  await deliver(
+    bot,
+    textUpdate(`/start link_${"A".repeat(43)}`, GROUP_CHAT),
+  );
+
+  assert.equal(redeemCalls, 0);
+  assert.equal(messageText(firstReply(calls)), PRIVATE_CHAT_REQUIRED_TEXT);
+});
+
+test("the linked private chat still receives merchant data", async () => {
+  const { bot, calls } = linkedHarness(fakeData());
+
+  await deliver(bot, textUpdate("/summary"));
+
+  assert.ok(messageText(firstReply(calls)).includes("Payment summary"));
 });
 
