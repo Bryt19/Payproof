@@ -137,6 +137,7 @@ function executeHandler(overrides: {
   const handler = createPaymentDraftExecuteHandler({
     resolveMerchant: async () => SESSION_WALLET,
     checkRateLimit: async (): Promise<RateLimitOutcome> => ({ ok: true }),
+    checkCapability: async () => ({ ok: true }),
     createAuthorizedRequest: async (input) => {
       state.calls += 1;
       state.lastInput = input;
@@ -171,6 +172,7 @@ function reauthorizeHandler(overrides: {
   const handler = createPaymentDraftReauthorizeHandler({
     resolveMerchant: async () => SESSION_WALLET,
     checkRateLimit: async (): Promise<RateLimitOutcome> => ({ ok: true }),
+    checkCapability: async () => ({ ok: true }),
     reauthorize: async (input) => {
       state.calls += 1;
       state.lastInput = input;
@@ -427,6 +429,7 @@ test("a token past its server-issued expiry is rejected before the registry", as
   const afterExpiry = createPaymentDraftExecuteHandler({
     resolveMerchant: async () => SESSION_WALLET,
     checkRateLimit: async (): Promise<RateLimitOutcome> => ({ ok: true }),
+    checkCapability: async () => ({ ok: true }),
     createAuthorizedRequest: async () => {
       throw new Error("registry must not be reached for an expired token");
     },
