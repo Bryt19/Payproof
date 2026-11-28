@@ -95,6 +95,7 @@ function createHandler(overrides: {
         ? overrides.checkRateLimit()
         : { ok: true };
     },
+    checkCapability: async () => ({ ok: true }),
     proposeDraft: async () => {
       state.proposeCalls += 1;
       return overrides.proposeDraft

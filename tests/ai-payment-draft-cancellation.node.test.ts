@@ -448,6 +448,7 @@ test("simultaneous approval and cancellation cannot both succeed", async () => {
   const execute = createPaymentDraftExecuteHandler({
     resolveMerchant: async () => SESSION_WALLET,
     checkRateLimit: async (): Promise<RateLimitOutcome> => ({ ok: true }),
+    checkCapability: async () => ({ ok: true }),
     createAuthorizedRequest: () =>
       withLock(async () => {
         if (registryState === "consumed") {

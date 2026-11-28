@@ -158,9 +158,11 @@ test("the existing streaming chat path is still present for ordinary messages", 
     "utf8",
   );
 
-  assert.match(source, /fetch\("\/api\/ai\/chat"/);
+  // Stage 3 routes every message through the unified assistant endpoint, which
+  // still streams General Assistance replies as text/plain.
+  assert.match(source, /fetch\("\/api\/ai\/assistant"/);
   assert.match(source, /contentType\.includes\("text\/plain"\)/);
-  assert.match(source, /shouldPreparePaymentDraft\(/);
+  assert.doesNotMatch(source, /setMode|mode ===/);
   assert.doesNotMatch(source, /looksLikePaymentRequestAction\(cleanText\)/);
   assert.match(source, /readonly Message\[\]/);
 });
@@ -350,7 +352,7 @@ test("the review UI contains no payment-request creation or database calls", () 
   }
 
   const clientSource = sources[2];
-  assert.match(clientSource, /fetch\("\/api\/ai\/payment-drafts"/);
+  assert.match(clientSource, /fetch\("\/api\/ai\/assistant"/);
   assert.match(clientSource, /\/api\/ai\/payment-drafts\/execute/);
   assert.match(clientSource, /\/api\/ai\/payment-drafts\/reauthorize/);
   assert.doesNotMatch(clientSource, /createDraftToken/);

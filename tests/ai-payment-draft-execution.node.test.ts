@@ -112,6 +112,7 @@ function executeHandler(overrides: {
       overrides.resolveMerchant ? overrides.resolveMerchant() : SESSION_WALLET,
     checkRateLimit: async () =>
       overrides.checkRateLimit ? overrides.checkRateLimit() : { ok: true },
+    checkCapability: async () => ({ ok: true }),
     createAuthorizedRequest: async (input) => {
       state.executeCalls += 1;
       state.lastInput = input;
@@ -156,6 +157,7 @@ function reauthorizeHandler(overrides: {
       overrides.resolveMerchant ? overrides.resolveMerchant() : SESSION_WALLET,
     checkRateLimit: async () =>
       overrides.checkRateLimit ? overrides.checkRateLimit() : { ok: true },
+    checkCapability: async () => ({ ok: true }),
     reauthorize: async (input) => {
       state.calls += 1;
       state.lastInput = input;
